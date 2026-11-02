@@ -6,7 +6,7 @@ Work in progress: see `PLAN.md` for the roadmap.
 
 ## Requirements
 
-- R 4.5.2, the latest version known to be accepted by shinyapps.io (macOS: `R-4.5.2-arm64.pkg` from CRAN; Windows: `R-4.5.2-win.exe` from the CRAN previous releases, commands run in Git Bash)
+- R 4.5.2, the latest version reported to be accepted by shinyapps.io (macOS: `R-4.5.2-arm64.pkg` from CRAN; Windows: `R-4.5.2-win.exe` from the CRAN previous releases, commands run in Git Bash)
 - Windows: the R installer does not add R to the `PATH`. Add `C:\Program Files\R\R-4.5.2\bin` so that `Rscript` works in Git Bash.
 - Package versions are pinned with `renv`.
 
