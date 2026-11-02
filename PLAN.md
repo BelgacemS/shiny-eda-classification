@@ -36,7 +36,7 @@ Décisions prises pendant la planification :
 - `CLAUDE.md` versionné : instructions du projet pour les agents (contraintes, conventions, commandes). `.claude/settings.local.json`, propre à chaque poste, est ignoré.
 - Données : aucun fichier de données ni sortie de script dans Git. Les `.rds` de `data/` sont regénérés par `data-raw/` ou transmis hors de Git.
 - CSV du cours non versionnés, leurs droits de diffusion étant inconnus : chaque poste les copie dans `tests/testthat/fixtures/course/` (ignoré), et les tests qui en dépendent commencent par `skip_if_not(file.exists(...))`. Les tests de référence recopient directement les données utiles des slides (48 âges de la slide 01, table Sex × Level).
-- Déploiement par `deploy.R` (versionné), lancé par la personne qui termine l'étape, toujours vers le même compte shinyapps.io et la même application, pour garder une seule URL. Le dossier `rsconnect/`, qui identifie l'application déployée, est versionné après vérification qu'il ne contient aucun jeton.
+- Déploiement par `deploy.R` (versionné), lancé par la personne qui termine l'étape, toujours vers le même compte shinyapps.io et la même application, pour garder une seule URL. Le dossier `rsconnect/` (enregistrement local du déploiement) n'est pas versionné : `deployApp(forceUpdate = TRUE)` met à jour l'application du même nom sur le compte, même depuis un poste sans enregistrement.
 - `.rds` lus une seule fois au démarrage (niveau global de `app.R`) et partagés entre sessions. S'ils sont absents, le bouton BAAC et l'onglet 5 affichent un message au lieu de planter.
 - Onglet 5 sans boutons qui reconfigurent les autres onglets : sous chaque figure, les réglages exacts pour la rejouer dans les onglets 1 à 4, et des figures calculées par les mêmes fonctions que les onglets 3 et 4. Des boutons obligeraient le module de l'onglet 5 à piloter les entrées des autres modules, ce qui casserait le contrat entre onglets.
 - Seuil de décision choisi par modèle, sur une validation interne prise dans l'entraînement (F1 maximal) ; l'AUC est le critère principal de comparaison.
@@ -124,25 +124,26 @@ Couvre : le contrat entre onglets et un premier déploiement (A.5).
 - [ ] **E1. Squelette déployé**
   - Objectif : postes de travail et dépôt prêts, application vide déployée.
   - Contenu :
-    - installer R, version arm64 de CRAN (installeur `.pkg` ou `brew install --cask r-app`), avec la même version mineure sur les deux postes, et une version acceptée par shinyapps.io ;
+    - installer R 4.6 (4.6.2 au départ du projet) depuis CRAN : sur macOS, version arm64 par `brew install --cask r-app` ; sur Windows, l'installeur `R-4.6.x-win.exe` de CRAN, plus Git for Windows, dont Git Bash sert de terminal pour que toutes les commandes du plan soient identiques sur les deux postes ; même version mineure sur les deux postes, vérifiée par `R --version` ; la version exacte est enregistrée dans `renv.lock`, et le premier déploiement confirme que shinyapps.io l'accepte ;
     - `renv::init()`, installer les packages de l'annexe B, `renv::snapshot()` ;
     - `app.R` : `navbarPage` à 5 onglets vides, `library(Hmisc)` et `library(UsingR)` chargés pour tester leur installation sur le serveur ;
-    - `.gitignore` : `.DS_Store`, `.Rhistory`, `.RData`, `.Rproj.user/`, `.Renviron`, `.env`, `Rplots.pdf`, `data/*` sauf `data/.gitkeep`, `data-raw/raw/`, `data-raw/out/`, `tests/testthat/fixtures/course/`, `.claude/settings.local.json` ; `renv/library/` est géré par le `.gitignore` de renv ; les fichiers propres à un poste vont dans son `.git/info/exclude` ;
-    - `CLAUDE.md` : contraintes du projet, conventions, commandes pour lancer, tester et déployer ; il précise que l'usage d'un assistant est autorisé par l'enseignante, ce qui justifie sa présence dans le dépôt, mais que commits, demandes de fusion, code et README restent sans mention d'IA ;
-    - `deploy.R` : vérifie que la branche courante est `main` sans modification locale, puis `rsconnect::deployApp(appFiles = ...)` avec seulement `app.R`, `R/`, `renv.lock` et les `.rds` de `data/` présents ;
+    - `.gitattributes` : `* text=auto eol=lf`, pour que les fins de ligne Windows (CRLF) ne fassent pas apparaître chaque fichier comme modifié ;
+    - `.gitignore` : `.DS_Store`, `Thumbs.db`, `desktop.ini`, `.Rhistory`, `.RData`, `.Rproj.user/`, `.Renviron`, `.env`, `rsconnect/`, `Rplots.pdf`, `data/*` sauf `data/.gitkeep`, `data-raw/raw/`, `data-raw/out/`, `tests/testthat/fixtures/course/`, `.claude/settings.local.json` ; `renv/library/` est géré par le `.gitignore` de renv ; les fichiers propres à un poste vont dans son `.git/info/exclude` ;
+    - `CLAUDE.md` : contraintes du projet, conventions, commandes pour lancer, tester et déployer ;
+    - `deploy.R` : vérifie que la branche courante est `main`, sans modification locale et identique à `origin/main`, affiche la liste des fichiers, puis `rsconnect::deployApp(appFiles = ..., forceUpdate = TRUE)` avec seulement `app.R`, `R/`, `renv.lock` et les `.rds` de `data/` présents ;
     - `README.md` minimal : lancer, tester, déployer ;
     - `tests/testthat/setup.R`, qui charge les fonctions de `R/`, et un test de fumée (l'app se construit sans erreur) ;
     - travail sur la branche `e1-skeleton` et demande de fusion, comme pour toutes les étapes ; accès en écriture au dépôt pour l'autre membre ; après la fusion, `main` protégée sur GitHub (modifiable seulement par demande de fusion) ;
     - premier déploiement par `deploy.R` ; relever les limites réelles de l'offre gratuite (RAM, heures actives, taille du bundle) et régler le délai d'inactivité au minimum.
-  - Fichiers : `app.R`, `renv.lock`, `.Rprofile`, `renv/`, `.gitignore`, `deploy.R`, `rsconnect/`, `README.md`, `CLAUDE.md`, `PLAN.md`, `data/.gitkeep`, `tests/testthat/setup.R`, `tests/testthat/test-smoke.R`.
+  - Fichiers : `app.R`, `renv.lock`, `.Rprofile`, `renv/`, `.gitignore`, `.gitattributes`, `deploy.R`, `README.md`, `CLAUDE.md`, `PLAN.md`, `data/.gitkeep`, `tests/testthat/setup.R`, `tests/testthat/test-smoke.R`.
   - Vérification :
     - `Rscript -e 'shiny::runApp()'` affiche les 5 onglets ;
     - `Rscript -e 'testthat::test_dir("tests/testthat")'` passe ;
     - l'URL shinyapps.io affiche les 5 onglets, sans erreur dans les logs au chargement de `Hmisc` et `UsingR` ;
-    - les logs de déploiement ne listent que les fichiers prévus ; `rsconnect/` ne contient ni jeton ni secret ;
+    - les logs de déploiement ne listent que les fichiers prévus ;
     - avant le premier commit de la branche, `git status --short` ne liste que des fichiers à versionner (ni `.DS_Store`, ni `renv/library`, ni données) ;
     - `git ls-remote origin` montre `main`, et un push direct sur `main` depuis le second poste est refusé ;
-    - sur le second poste, le dépôt est cloné, `renv::restore()` passe, l'app se lance, et `deploy.R` redéploie vers la même URL.
+    - sur le poste Windows, le dépôt est cloné, `renv::restore()` passe, `git status` est propre juste après le clone, les tests passent, l'app se lance, et `deploy.R` redéploie vers la même URL.
   - Hors périmètre : tout contenu dans les onglets.
 
 - [ ] **E2. Contrat entre onglets**
@@ -458,12 +459,14 @@ On ne coupe jamais : les exigences de l'annexe A (dont les trois méthodes de r�
 | Modalité positive mal codée (`glm` modélise le second niveau) | test du signe de l'effet en E10b | recodage explicite de la cible en 0/1 |
 | Temps de calcul dans l'app (forêt et permutations) | mesure en E10b et E11b sur l'app déployée | moins d'arbres dans l'app, importances sur un sous-échantillon |
 | Run final trop lourd pour 8 Go de RAM | run sur 10 % en E12a | sous-échantillonner l'entraînement par accident, ou passer par Colab |
-| Deux applications déployées sous deux URL | redéploiement depuis le second poste en E1 | `deploy.R` et `rsconnect/` versionnés |
+| Deux applications déployées sous deux URL | redéploiement depuis le second poste en E1 | `deploy.R` versionné, même nom d'application, `forceUpdate = TRUE` |
 | Conflits Git entre branches | fusions qui échouent | dépendances respectées (« Dépend de »), fichiers disjoints entre étapes menées en parallèle, `app.R` modifié seulement en E1, E2 et E13 |
 
 ## Workflow Git
 
 Une étape peut commencer dès que les étapes de sa ligne « Dépend de » sont fusionnées dans `main`. Deux étapes prêtes en même temps peuvent avancer en parallèle : leurs fichiers sont disjoints, sauf `mod_model.R` entre E11a et E11b, d'où leur dépendance. Seul le commit initial, qui ajoute ce plan, est fait directement sur `main`.
+
+Un poste est sous macOS, l'autre sous Windows. Les commandes ci-dessous se tapent dans Git Bash sous Windows. Dans le code, les chemins sont relatifs et construits avec `file.path()`, et l'encodage des fichiers lus est toujours explicite.
 
 Pour chaque étape, avec `e5-data-tab` comme exemple de nom de branche :
 
