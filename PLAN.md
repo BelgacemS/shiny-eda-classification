@@ -124,11 +124,12 @@ Couvre : le contrat entre onglets et un premier déploiement (A.5).
 - [ ] **E1. Squelette déployé**
   - Objectif : postes de travail et dépôt prêts, application vide déployée.
   - Contenu :
-    - installer R, version arm64 de CRAN (installeur `.pkg` ou `brew install --cask r-app`), avec la même version mineure sur les deux postes, et une version acceptée par shinyapps.io ;
+    - installer R 4.6 (4.6.2 au départ du projet) depuis CRAN : sur macOS, version arm64 par `brew install --cask r-app` ; sur Windows, l'installeur `R-4.6.x-win.exe` de CRAN, plus Git for Windows, dont Git Bash sert de terminal pour que toutes les commandes du plan soient identiques sur les deux postes ; même version mineure sur les deux postes, vérifiée par `R --version` ; la version exacte est enregistrée dans `renv.lock`, et le premier déploiement confirme que shinyapps.io l'accepte ;
     - `renv::init()`, installer les packages de l'annexe B, `renv::snapshot()` ;
     - `app.R` : `navbarPage` à 5 onglets vides, `library(Hmisc)` et `library(UsingR)` chargés pour tester leur installation sur le serveur ;
-    - `.gitignore` : `.DS_Store`, `.Rhistory`, `.RData`, `.Rproj.user/`, `.Renviron`, `.env`, `Rplots.pdf`, `data/*` sauf `data/.gitkeep`, `data-raw/raw/`, `data-raw/out/`, `tests/testthat/fixtures/course/`, `.claude/settings.local.json` ; `renv/library/` est géré par le `.gitignore` de renv ; les fichiers propres à un poste vont dans son `.git/info/exclude` ;
-    - `CLAUDE.md` : contraintes du projet, conventions, commandes pour lancer, tester et déployer ; il précise que l'usage d'un assistant est autorisé par l'enseignante, ce qui justifie sa présence dans le dépôt, mais que commits, demandes de fusion, code et README restent sans mention d'IA ;
+    - `.gitattributes` : `* text=auto eol=lf`, pour que les fins de ligne Windows (CRLF) ne fassent pas apparaître chaque fichier comme modifié ;
+    - `.gitignore` : `.DS_Store`, `Thumbs.db`, `desktop.ini`, `.Rhistory`, `.RData`, `.Rproj.user/`, `.Renviron`, `.env`, `Rplots.pdf`, `data/*` sauf `data/.gitkeep`, `data-raw/raw/`, `data-raw/out/`, `tests/testthat/fixtures/course/`, `.claude/settings.local.json` ; `renv/library/` est géré par le `.gitignore` de renv ; les fichiers propres à un poste vont dans son `.git/info/exclude` ;
+    - `CLAUDE.md` : contraintes du projet, conventions, commandes pour lancer, tester et déployer ;
     - `deploy.R` : vérifie que la branche courante est `main` sans modification locale, puis `rsconnect::deployApp(appFiles = ...)` avec seulement `app.R`, `R/`, `renv.lock` et les `.rds` de `data/` présents ;
     - `README.md` minimal : lancer, tester, déployer ;
     - `tests/testthat/setup.R`, qui charge les fonctions de `R/`, et un test de fumée (l'app se construit sans erreur) ;
@@ -142,7 +143,7 @@ Couvre : le contrat entre onglets et un premier déploiement (A.5).
     - les logs de déploiement ne listent que les fichiers prévus ; `rsconnect/` ne contient ni jeton ni secret ;
     - avant le premier commit de la branche, `git status --short` ne liste que des fichiers à versionner (ni `.DS_Store`, ni `renv/library`, ni données) ;
     - `git ls-remote origin` montre `main`, et un push direct sur `main` depuis le second poste est refusé ;
-    - sur le second poste, le dépôt est cloné, `renv::restore()` passe, l'app se lance, et `deploy.R` redéploie vers la même URL.
+    - sur le poste Windows, le dépôt est cloné, `renv::restore()` passe, `git status` est propre juste après le clone, les tests passent, l'app se lance, et `deploy.R` redéploie vers la même URL.
   - Hors périmètre : tout contenu dans les onglets.
 
 - [ ] **E2. Contrat entre onglets**
@@ -464,6 +465,8 @@ On ne coupe jamais : les exigences de l'annexe A (dont les trois méthodes de r�
 ## Workflow Git
 
 Une étape peut commencer dès que les étapes de sa ligne « Dépend de » sont fusionnées dans `main`. Deux étapes prêtes en même temps peuvent avancer en parallèle : leurs fichiers sont disjoints, sauf `mod_model.R` entre E11a et E11b, d'où leur dépendance. Seul le commit initial, qui ajoute ce plan, est fait directement sur `main`.
+
+Un poste est sous macOS, l'autre sous Windows. Les commandes ci-dessous se tapent dans Git Bash sous Windows. Dans le code, les chemins sont relatifs et construits avec `file.path()`, et l'encodage des fichiers lus est toujours explicite.
 
 Pour chaque étape, avec `e5-data-tab` comme exemple de nom de branche :
 
