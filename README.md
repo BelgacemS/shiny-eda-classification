@@ -7,6 +7,7 @@ Work in progress: see `PLAN.md` for the roadmap.
 ## Requirements
 
 - R 4.6 (macOS: `brew install --cask r-app`; Windows: installer from CRAN, commands run in Git Bash)
+- Windows: the R installer does not add R to the `PATH`. Add `C:\Program Files\R\R-4.6.x\bin` (actual version number) so that `Rscript` works in Git Bash.
 - Package versions are pinned with `renv`.
 
 ## Setup
