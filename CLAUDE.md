@@ -4,7 +4,7 @@ Projet de cours à deux (un poste macOS, un poste Windows). La feuille de route 
 
 ## Contraintes
 
-- R 4.6 et Shiny : `app.R` et dossier `R/` chargé automatiquement, sans golem ni rhino. Packages de l'annexe B de `PLAN.md` ; tout ajout suit les conditions de cette annexe.
+- R 4.5.2 (version acceptée par shinyapps.io, ne pas monter de version sans vérifier) et Shiny : `app.R` et dossier `R/` chargé automatiquement, sans golem ni rhino. Packages de l'annexe B de `PLAN.md` ; tout ajout suit les conditions de cette annexe.
 - Interface et étude de cas en français ; identifiants, noms de fichiers, commentaires et messages de commit en anglais.
 - Statistiques descriptives en 1/n (convention du cours). Ne jamais utiliser `var()`, `sd()` ou `cov()` directement : passer par `R/fct_stats_base.R`.
 - Valeurs attendues des tests recalculées indépendamment, jamais recopiées des slides, qui contiennent parfois des erreurs.
