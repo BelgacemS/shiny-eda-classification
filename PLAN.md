@@ -30,6 +30,7 @@ Tout cela sans erreur ni déconnexion du serveur. L'onglet 5 affiche l'étude co
 Décisions prises pendant la planification :
 
 - Contrat entre onglets : « recette apprise ». Le Prétraitement transmet des données nettoyées et des réglages ; les paramètres sont appris sur l'entraînement dans l'onglet Modélisation (détail plus bas).
+- Données et types circulent dans un seul réactif (`dataset`, une liste `data` + `var_types`), pas dans deux. `var_types` doit rester modifiable (l'utilisateur corrige les types) ; avec deux réactifs, sa remise à zéro à l'arrivée d'un nouveau fichier passe par un observateur, et l'aval peut s'exécuter entre-temps sur le nouveau fichier avec les anciens types. Dans `mod_data`, le couple est donc stocké dans une seule `reactiveVal`, que chaque observateur (chargement, correction d'un type) remplace en une fois ; un `reactive()` qui recombine deux sources séparées ne suffit pas.
 - Variables du choc (`col`, `choc`, `obs`, `obsm`) : absentes du modèle BAAC principal, ajoutées dans une variante comparée (ablation) en E12. Elles restent dans le `.rds`.
 - Variables des modèles BAAC fixées par une liste blanche versionnée (`data-raw/model_vars.R`), vérifiée par assertion. L'année `an` n'en fait pas partie : le test portant sur 2024, un effet année appris sur 2019-2022 serait une extrapolation.
 - Interface et étude de cas en français ; identifiants, noms de fichiers, commentaires et messages de commit en anglais (`mod_data.R` plutôt que `mod_donnees.R`, `detect_types()` plutôt que `detecter_types()`).
@@ -39,7 +40,7 @@ Décisions prises pendant la planification :
 - Déploiement par `deploy.R` (versionné), lancé par la personne qui termine l'étape, toujours vers le même compte shinyapps.io et la même application, pour garder une seule URL. Le dossier `rsconnect/` (enregistrement local du déploiement) n'est pas versionné : `deployApp(forceUpdate = TRUE)` met à jour l'application du même nom sur le compte, même depuis un poste sans enregistrement.
 - `.rds` lus une seule fois au démarrage (niveau global de `app.R`) et partagés entre sessions. S'ils sont absents, le bouton BAAC et l'onglet 5 affichent un message au lieu de planter.
 - Onglet 5 sans boutons qui reconfigurent les autres onglets : sous chaque figure, les réglages exacts pour la rejouer dans les onglets 1 à 4, et des figures calculées par les mêmes fonctions que les onglets 3 et 4. Des boutons obligeraient le module de l'onglet 5 à piloter les entrées des autres modules, ce qui casserait le contrat entre onglets.
-- Seuil de décision choisi par modèle, sur une validation interne prise dans l'entraînement (F1 maximal) ; l'AUC est le critère principal de comparaison.
+- Seuil de décision choisi par modèle, sur une validation interne prise dans l'entraînement (F1 maximal par défaut, curseur sur la validation) ; le test n'est évalué qu'à la demande, avec les seuils alors figés. L'AUC est le critère principal de comparaison.
 
 ## Choix techniques
 
@@ -51,15 +52,16 @@ Décisions prises pendant la planification :
 | Graphiques | `ggplot2`, plus `Hmisc::histbackback` et `UsingR::scatter.with.hist` | les deux derniers pour les graphiques du cours qui en dépendent |
 | Outliers | règle de Tukey (1,5 × IQR) avec les quartiles de `quantile(type = 7)`, et z-score au-delà d'un seuil réglable (3 par défaut) | quartiles de `geom_boxplot` ; l'interface signale que la slide de C02 calcule les quartiles autrement (Q1 = 35 contre 36) et prolonge les moustaches jusqu'aux extrêmes |
 | Rapport de corrélation | `c_{Y\|X} = s_E / s_Y`, variances en 1/n | notation du cours, pas η² |
-| Modèles | `glm(family = binomial)`, `ranger(probability = TRUE)`, `rpart` | logistique interprétable (`quasibinomial` si les poids ne sont pas entiers : mêmes coefficients, sans avertissement) ; forêt rapide en C++ (Breiman, 2001 ; Wright et Ziegler, 2017) ; arbre presque gratuit avec l'interface commune |
+| Modèles | `glm(family = binomial)`, `ranger(probability = TRUE, respect.unordered.factors = "order")`, `rpart` | logistique interprétable (`quasibinomial` si les poids ne sont pas entiers : mêmes coefficients, sans avertissement) ; forêt rapide en C++ (Breiman, 2001 ; Wright et Ziegler, 2017), avec `"order"` parce que le défaut `"ignore"` traite un facteur nominal comme ordonné selon l'ordre de ses niveaux (Wright et König, 2019) ; arbre presque gratuit avec l'interface commune |
 | ROC et AUC | `pROC`, `direction = "<"` et `levels` toujours fixés | le mode `"auto"` inverse la courbe d'un mauvais modèle et gonfle l'AUC (Robin et al., 2011) |
 | Importance | permutation (baisse d'AUC quand on permute une variable d'origine, avant la recette) pour tous les modèles ; pour la logistique, en plus, valeur absolue des coefficients standardisés, odds ratios et IC à 95 % (Wald) sur le modèle non pondéré | comparable d'un modèle à l'autre (Fisher et al., 2019) ; coefficients standardisés exigés par le cadrage ; pas d'importance par impureté de `ranger`, biaisée en faveur des variables continues et à forte cardinalité (Strobl et al., 2007) |
 | Découpage dans l'app | stratifié aléatoire, groupé par identifiant (stratifié au niveau du groupe), ou « par variable » (test = lignes dont une colonne prend des valeurs données, par exemple `an = 2024`) ; validation interne de même groupement prise dans l'entraînement | le mode par variable rejoue la logique de l'étude ; la validation sert à choisir les seuils |
-| Seuil de décision | un par modèle, F1 maximal sur la validation interne ; AUC comme critère principal de comparaison | un seuil commun réglé sur le test rendrait le tableau P, R, F1 arbitraire |
+| Seuil de décision | un par modèle, F1 maximal sur la validation interne par défaut, réglable par un curseur sur la validation ; test évalué sur bouton, seuils figés ; AUC comme critère principal de comparaison | un seuil commun réglé sur le test rendrait le tableau P, R, F1 arbitraire, et un curseur sur le test reviendrait à choisir sur le test |
+| Référence naïve | score constant (AUC = 0,5) et règle « tout positif » (Precision = prévalence, Recall = 1) dans chaque tableau comparatif | sur une classe minoritaire, Precision et F1 ne se lisent qu'à côté de ce plancher |
 | Déséquilibre | pondération, sous-échantillonnage, sur-échantillonnage par duplication, sur l'entraînement seul ; dans l'étude, pondération contre « aucun rééquilibrage + seuil choisi sur 2023 » | ces corrections dégradent souvent la calibration sans gain d'AUC (van den Goorbergh et al., 2022) ; SMOTE inutile ici |
 | Entraînement | bouton (`eventReactive`, comme dans le cours), barre de progression, `tryCatch` avec `showNotification` | pas de réentraînement à chaque changement d'entrée ; une erreur n'emporte pas la session |
 | Niveau de référence des facteurs | modalité la plus fréquente de l'entraînement | l'ordre alphabétique des niveaux dépend de la locale |
-| Modèles finaux BAAC | entraînés une fois sur 2019-2022, seuil et rééquilibrage choisis sur 2023, évaluation unique sur 2024 | pas de réentraînement sur 2019-2023, pour que le seuil reste celui du modèle évalué |
+| Modèles finaux BAAC | entraînés sur 2019-2022 ; petite grille de réglages (`mtry` et `min.node.size` pour la forêt, `cp` pour l'arbre), rééquilibrage et seuil choisis sur 2023 ; évaluation unique sur 2024 | la forêt est en général peu sensible à ses réglages, `mtry` et la taille des nœuds étant les plus influents (Probst et al., 2019) : une petite grille évite que la comparaison avec la logistique dépende des valeurs par défaut ; pas de réentraînement sur 2019-2023, pour que le seuil reste celui du modèle évalué |
 | Intervalles de l'étude | bootstrap par grappes sur les accidents de 2024 | les usagers d'un même accident ne sont pas indépendants |
 | `data/final_models.rds` | résultats seulement (métriques, points ROC, importances, coefficients, seuils, intervalles) | une forêt entraînée sur 400 000 lignes pèserait des centaines de Mo |
 | Tests | `testthat`, modules testés avec `shiny::testServer()` | modules testés sans navigateur |
@@ -71,12 +73,12 @@ Navigateur --> shinyapps.io : app.R (navbarPage, 5 onglets)
   au démarrage : baac_sample   <- data/accidents_sample.rds
                  final_results <- data/final_models.rds
 
-  1 Données        mod_data        (baac_sample)               --> data, var_types
-  2 Prétraitement  mod_preprocess  (data, var_types)           --> data_clean, var_types, recipe
-  3 Exploration    mod_explore     (data_clean, var_types)         uni et bi
-  4 Modélisation   mod_model       (data_clean, var_types, recipe)
+  1 Données        mod_data        (baac_sample)               --> dataset
+  2 Prétraitement  mod_preprocess  (dataset)                   --> dataset_clean, recipe
+  3 Exploration    mod_explore     (dataset_clean)                 uni et bi
+  4 Modélisation   mod_model       (dataset_clean, recipe)
                      découpage --> fit_recipe(train) --> apply_recipe --> rééquilibrage
-                     --> entraînement --> seuil sur la validation --> métriques sur le test
+                     --> entraînement --> seuil sur la validation --> métriques sur le test (sur bouton)
   5 Étude de cas   mod_case_study  (baac_sample, final_results)
 
 Hors de l'app (data-raw/, lancé à la main, mêmes fonctions de R/) :
@@ -94,26 +96,28 @@ baac_sample   <- load_rds_or_null("data/accidents_sample.rds")   # niveau global
 final_results <- load_rds_or_null("data/final_models.rds")
 
 mod_data_server(id, baac_sample)
-  -> list(data = reactive(<data.frame>), var_types = reactive(<chr nommé>))
-mod_preprocess_server(id, data, var_types)
-  -> list(data_clean = reactive(<data.frame>), var_types = reactive(<chr nommé>),
+  -> dataset = reactive(list(data = <data.frame>, var_types = <chr nommé>))
+mod_preprocess_server(id, dataset)
+  -> list(dataset_clean = reactive(list(data = <data.frame>, var_types = <chr nommé>)),
           recipe = reactive(<list>))
-mod_explore_server(id, data_clean, var_types)
-mod_model_server(id, data_clean, var_types, recipe)
+mod_explore_server(id, dataset_clean)
+mod_model_server(id, dataset_clean, recipe)
 mod_case_study_server(id, baac_sample, final_results)
 ```
 
+- `dataset` et `dataset_clean` : un seul réactif par jeu de données, pour que `data` et `var_types` changent toujours ensemble. `validate_dataset()` renvoie `TRUE` ou `FALSE` sans lever d'erreur, pour que `req()` attende en silence ; elle vérifie que `names(var_types)` est identique à `names(data)` et que les classes concordent : `"quanti"` → numérique, `"quali"` → facteur, `"id"` et `"ignore"` → classe libre. Les modules consommateurs commencent par `req(validate_dataset(...))`.
 - `var_types` : vecteur nommé par les colonnes, valeurs dans `"quanti"`, `"quali"`, `"id"`, `"ignore"`.
-- `data_clean` : données typées, codes manquants convertis en `NA`, colonnes retirées, suppression des lignes incomplètes si l'utilisateur la choisit. Aucune opération apprise : pas d'imputation, de normalisation ni de dummification. L'Exploration n'utilise que cet objet. Chaque analyse travaille sur les cas complets des variables concernées et affiche le nombre de lignes exclues.
+- `recipe` reste un réactif distinct, pour qu'un changement de réglage ne relance pas l'Exploration. Il ne référence que des types ou des noms de colonnes, et `fit_recipe()` ignore un réglage qui porte sur une colonne absente.
+- `data_clean` (le `data` de `dataset_clean`) : données typées, codes manquants convertis en `NA`, colonnes retirées, suppression des lignes incomplètes si l'utilisateur la choisit. Aucune opération apprise : pas d'imputation, de normalisation ni de dummification. L'Exploration n'utilise que cet objet. Chaque analyse travaille sur les cas complets des variables concernées et affiche le nombre de lignes exclues.
 - `recipe` : liste des réglages choisis. `fit_recipe(recipe, train, var_types)` apprend les paramètres ; `apply_recipe(fitted, newdata)` les applique sans rien réapprendre. Ordre des étapes :
   1. outliers : seuils appris sur l'entraînement ; action « signaler », « plafonner » (entraînement et test) ou « supprimer » (lignes de l'entraînement seulement, le test n'est jamais amputé) ;
   2. imputation : médiane ou moyenne (quanti), mode ou modalité « Manquant » (quali), valeurs apprises sur l'entraînement ;
-  3. modalités rares : fréquence sous un seuil dans l'entraînement, regroupées en « Autre » ; les modalités du test absentes de l'entraînement vont aussi dans « Autre », qui existe toujours comme niveau ;
+  3. modalités rares : fréquence sous un seuil dans l'entraînement, regroupées en « Autre » ; les modalités du test absentes de l'entraînement vont aussi dans « Autre », qui existe toujours comme niveau ; si « Autre » n'a aucune ligne dans l'entraînement, elles vont dans la modalité la plus fréquente de l'entraînement (avec `respect.unordered.factors = "order"`, un niveau sans ligne d'entraînement est rangé après tous les autres, donc envoyé à chaque coupure du côté du plus fort taux de positifs ; Au, 2018) ;
   4. normalisation : centrage-réduction (moyenne et écart-type en 1/n de l'entraînement) ou min-max (min et max de l'entraînement, le test peut sortir de [0, 1]) ; une colonne constante dans l'entraînement (écart-type ou étendue nulle) est retirée avec un message ;
   5. dummification : modalités de l'entraînement, one-hot ou k − 1 colonnes (référence = modalité la plus fréquente de l'entraînement) ; k − 1 imposé pour la logistique, dont l'intercept rend le one-hot colinéaire ; une variable qui dépasse un plafond de colonnes après regroupement est refusée avec un message.
   La cible n'est jamais transformée ; les lignes sans cible sont retirées avant le découpage.
 - Onglet Prétraitement : l'aperçu et l'export CSV appliquent une recette ajustée sur tout `data_clean`, avec la mention « aperçu ajusté sur tout le jeu, la modélisation réajuste sur l'entraînement ».
-- Onglet Modélisation : échantillon de taille réglable → découpage (entraînement, validation interne, test) → `fit_recipe(train)` → `apply_recipe` sur les trois → rééquilibrage de l'entraînement → entraînement → seuil de chaque modèle choisi sur la validation → prédiction et métriques sur le test.
+- Onglet Modélisation : échantillon de taille réglable → découpage (entraînement, validation interne, test) → `fit_recipe(train)` → `apply_recipe` sur les trois → rééquilibrage de l'entraînement → entraînement → seuil de chaque modèle choisi sur la validation → sur bouton, prédiction et métriques sur le test avec les seuils figés.
 
 ## Étapes
 
@@ -151,17 +155,21 @@ Couvre : le contrat entre onglets et un premier déploiement (A.5).
   - Objectif : tous les modules existent avec leurs signatures définitives, pour que les étapes suivantes avancent en parallèle sans toucher `app.R`.
   - Contenu :
     - `app.R` : `options(shiny.maxRequestSize = 30 * 1024^2)` (Shiny refuse par défaut les fichiers de plus de 5 Mo, or `bank-additional-full.csv` en fait environ 5,5), lecture globale des `.rds` par `load_rds_or_null()` ;
-    - `mod_data` lit un CSV avec les options par défaut et renvoie `data()` et `var_types()` ;
+    - `mod_data` lit un CSV avec les options par défaut et renvoie `dataset()`, colonnes quali converties en facteurs ;
+    - `validate_dataset()` dans `R/fct_data.R` (noms et classes cohérents avec `var_types`) ;
+    - `tests/testthat/test-generic.R` : échoue si un nom de colonne propre à BAAC (`Num_Acc`, `grav`, `catu`, `catv`, `an_nais`, `hrmn`, `id_vehicule`, `id_usager`, cherchés comme mots entiers, sans tenir compte de la casse) apparaît dans `R/` hors des fichiers de l'onglet 5 (`mod_case_study.R`, `case_study_*.R`) ; placé dès E2 pour protéger les étapes menées en parallèle ;
     - `detect_types()` : règle simple et documentée (numérique → quanti, caractère → quali, caractère à valeurs toutes distinctes ou à plus de 50 modalités → id) ; un numérique entier à valeurs toutes distinctes reste quanti mais déclenche une alerte « identifiant possible » ;
     - `R/fct_stats_base.R` : `mean_1n`, `var_1n`, `sd_1n`, `cov_1n` ;
-    - `mod_preprocess` laisse passer les données (`data_clean = data`, `recipe = default_recipe()`), avec `fit_recipe()` et `apply_recipe()` en fonctions identité à leur signature finale ;
-    - modules `mod_explore` (avec `mod_explore_uni` et `mod_explore_bi`), `mod_model` et `mod_case_study` en squelettes ; les onglets 3 et 4 affichent les dimensions de `data_clean()`, l'onglet 5 un message si `final_results` est absent ;
+    - `mod_preprocess` laisse passer les données (`dataset_clean = dataset`, `recipe = default_recipe()`), avec `fit_recipe()` et `apply_recipe()` en fonctions identité à leur signature finale ;
+    - modules `mod_explore` (avec `mod_explore_uni` et `mod_explore_bi`), `mod_model` et `mod_case_study` en squelettes ; les onglets 3 et 4 affichent les dimensions de `dataset_clean()$data`, l'onglet 5 un message si `final_results` est absent ;
     - CI : workflow GitHub Actions qui, sur chaque demande de fusion vers `main`, installe R et les packages de `renv.lock` (`r-lib/actions/setup-r` et `r-lib/actions/setup-renv`) puis lance `testthat` ; ce test devient obligatoire dans la protection de `main` (« Require status checks »). Les tests qui dépendent des CSV du cours sont sautés en CI, faute de fichiers.
-  - Fichiers : `.github/workflows/tests.yml`, `app.R`, `R/utils_load.R`, `R/fct_stats_base.R`, `R/mod_data.R`, `R/fct_data.R`, `R/mod_preprocess.R`, `R/fct_recipe.R`, `R/mod_explore.R`, `R/mod_explore_uni.R`, `R/mod_explore_bi.R`, `R/mod_model.R`, `R/mod_case_study.R`, `tests/testthat/test-types.R`, `tests/testthat/test-stats-base.R`, `tests/testthat/test-contract.R`.
+  - Fichiers : `.github/workflows/tests.yml`, `app.R`, `R/utils_load.R`, `R/fct_stats_base.R`, `R/mod_data.R`, `R/fct_data.R`, `R/mod_preprocess.R`, `R/fct_recipe.R`, `R/mod_explore.R`, `R/mod_explore_uni.R`, `R/mod_explore_bi.R`, `R/mod_model.R`, `R/mod_case_study.R`, `tests/testthat/test-types.R`, `tests/testthat/test-stats-base.R`, `tests/testthat/test-contract.R`, `tests/testthat/test-generic.R`.
   - Vérification :
     - `detect_types()` donne les types attendus sur `students.csv` (`Sex`, `Major`, `Level`, `BloodType` en quali ; `Height`, `Sleep`, `MilesHome` en quanti) et sur `chiens.csv` (4 quanti) ; une colonne d'identifiants caractère est typée id ;
     - `var_1n(c(1, 2, 3, 4)) == 1.25` ;
-    - `testServer` sur `mod_data_server` renvoie deux réactifs de la bonne forme, avec `names(var_types()) == names(data())` ;
+    - `testServer` sur `mod_data_server` renvoie un réactif dont la valeur passe `validate_dataset()` ;
+    - `validate_dataset()` renvoie `FALSE` pour une liste dont `var_types` n'a pas les mêmes noms que `data`, ou annonce `"quanti"` pour une colonne non numérique ;
+    - `test-generic.R` passe, et échoue si l'on ajoute temporairement `grav` dans un fichier de `R/` ;
     - l'app démarre sans les `.rds` de `data/` ;
     - dans l'app, après chargement de `students.csv`, les onglets 3 et 4 affichent les mêmes dimensions que `read.csv` ;
     - la demande de fusion de E2 affiche la CI en vert ; une demande de fusion de contrôle avec un test volontairement faux est en rouge et ne peut pas être fusionnée, puis elle est fermée sans fusion.
@@ -222,7 +230,7 @@ Couvre : le chargement et le prétraitement (A.1).
   - Fichiers : `R/mod_data.R`, `R/fct_data.R`, `tests/testthat/test-data.R`.
   - Vérification :
     - chargement sans erreur de `students.csv`, `chiens.csv`, d'un TSV et d'un CSV à point-virgule et virgule décimale fabriqués pour le test, d'un CSV synthétique de 10 Mo et de l'échantillon BAAC ;
-    - tests : codes manquants convertis sur un CSV jouet, % de NA exact, changement de type répercuté dans `var_types()` ;
+    - tests : codes manquants convertis sur un CSV jouet, % de NA exact, changement de type répercuté dans `dataset()$var_types` et dans la classe de la colonne de `dataset()$data` ;
     - mémoire de la session après chargement de BAAC relevée.
   - Hors périmètre : regroupement des modalités rares (appris, donc dans E6a).
 
@@ -235,7 +243,8 @@ Couvre : le chargement et le prétraitement (A.1).
     - après centrage-réduction, moyenne 0 et écart-type (1/n) égal à 1 sur l'entraînement, et test transformé égal à `(x − μ_train) / σ_train` ;
     - paramètres égaux aux valeurs calculées à la main sur un jeu jouet ;
     - k − 1 colonnes par variable dummifiée (k en one-hot), référence = modalité la plus fréquente ;
-    - une modalité inconnue du test va dans « Autre », sans erreur ;
+    - une modalité inconnue du test va dans « Autre » si « Autre » a des lignes dans l'entraînement, sinon dans la modalité la plus fréquente, sans erreur ;
+    - un réglage qui porte sur une colonne absente de `train` est ignoré, sans erreur ;
     - une colonne constante est retirée avec un message, sans NaN ;
     - « supprimer les outliers » ne retire aucune ligne du test ;
     - sans suppression d'outliers, `apply_recipe` sur l'entraînement redonne exactement la sortie de l'ajustement.
@@ -246,7 +255,7 @@ Couvre : le chargement et le prétraitement (A.1).
   - Objectif : l'interface qui règle la recette, en parallèle de E6a.
   - Contenu : réglages des 5 étapes, opérations non apprises de `data_clean` (colonnes retirées, suppression des lignes incomplètes), affichage des outliers par variable, aperçu et export CSV (`downloadHandler`).
   - Fichiers : `R/mod_preprocess.R`, `tests/testthat/test-preprocess.R`.
-  - Vérification : `testServer` : une colonne retirée disparaît de `data_clean()` et de `var_types()` ; `recipe()` reflète les réglages ; après fusion de E6a, `students.csv` prétraité et exporté dans l'app.
+  - Vérification : `testServer` : une colonne retirée disparaît de `dataset_clean()$data` et de `dataset_clean()$var_types`, et la valeur passe `validate_dataset()` ; `recipe()` reflète les réglages ; après fusion de E6a, `students.csv` prétraité et exporté dans l'app.
   - Hors périmètre : calcul des paramètres (E6a).
 
 - [ ] **E7. Fonctions de rééquilibrage**
@@ -315,14 +324,15 @@ Couvre : l'exploration (A.2) et le début de la modélisation (A.3).
     - répartition de la cible affichée dans l'entraînement, la validation et le test ;
     - taille d'échantillon et mode de découpage ;
     - recette ajustée sur l'entraînement ;
-    - interface commune `fit_model(type, x, y, weights)` et `predict_proba(model, newx)` pour `glm` et `ranger` ; variable à une seule modalité dans l'entraînement retirée avec un message ;
-    - matrice de confusion, Precision, Recall et F1 au seuil 0,5 ;
+    - interface commune `fit_model(type, x, y, weights, ...)` et `predict_proba(model, newx)` pour `glm` et `ranger` (`probability = TRUE`, `respect.unordered.factors = "order"`) ; variable à une seule modalité dans l'entraînement retirée avec un message ;
+    - matrice de confusion, Precision, Recall et F1 au seuil 0,5, sur la validation interne (le test arrive avec le bouton de E11a) ;
     - entraînement sur bouton, dans `tryCatch` avec `showNotification`.
   - Fichiers : `R/fct_models.R`, `R/mod_model.R`, `tests/testthat/test-models.R`.
   - Vérification :
     - tests : probabilités dans [0, 1], une par ligne du test, sur un jeu simulé ;
     - test : sur un jeu simulé où `y` croît avec `x`, coefficient de `x` positif, et négatif si l'on choisit l'autre modalité comme positive ;
     - test : une variable constante ou un facteur à une modalité ne fait pas planter l'entraînement ;
+    - test : un facteur à 4 modalités `a`, `b`, `c`, `d` (50 lignes chacune) dont `a` et `c` sont positives, appris par `fit_model("ranger", ..., num.trees = 1, max.depth = 1, seed = 1)` (une souche ; les arguments supplémentaires sont transmis à `ranger`), a une erreur de classement nulle sur ces lignes ; la même souche apprise directement par `ranger(..., respect.unordered.factors = "ignore")` se trompe sur exactement un quart des lignes ;
     - chaîne complète sur `students.csv` (cible `Sex`) ;
     - 20 000 lignes BAAC entraînées en moins de 30 s en local.
   - Hors périmètre : ROC, AUC, `rpart`, seuils par modèle, importances, rééquilibrage (E11).
@@ -335,24 +345,27 @@ Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
 
 - [ ] **E11a. ROC, AUC, seuil et comparaison**
   - Dépend de : E10b.
-  - Objectif : évaluation comparative des modèles.
+  - Objectif : évaluation comparative des modèles, choix sur la validation, test évalué à la demande avec des seuils figés.
   - Contenu :
     - ROC superposées et AUC (`pROC`, `direction` et `levels` fixés), AUC comme critère principal ;
-    - seuil de chaque modèle choisi sur la validation interne (F1 maximal) ; tableau comparatif (P, R, F1 à ce seuil, AUC) sur le test ;
-    - curseur de seuil pour explorer la matrice de confusion et les métriques, avec la mention « exploration sur le test, pas une sélection » ;
+    - sur la validation interne : un curseur de seuil par modèle, initialisé au seuil de F1 maximal, avec matrice de confusion et tableau comparatif (P, R, F1 au seuil courant, AUC) ;
+    - référence naïve dans le tableau : score constant (AUC = 0,5) et règle « tout positif » (Precision = prévalence, Recall = 1) ;
+    - bouton « Évaluer sur le test » : fige les seuils courants et affiche le même tableau, la matrice de confusion et les ROC sur le test ; déplacer ensuite un curseur ne change plus ces résultats tant qu'on ne relance pas l'évaluation ; un nouvel entraînement efface les résultats du test, qui ne réapparaissent qu'au clic suivant ;
     - `rpart` ajouté à l'interface commune.
   - Fichiers : `R/fct_metrics.R`, `R/fct_models.R`, `R/mod_model.R`, `tests/testthat/test-metrics.R`.
   - Vérification par tests :
     - sur un jeu jouet avec ex aequo, AUC de `pROC` égale à `W / (n₁ n₀)`, `W` étant la statistique de `wilcox.test(..., exact = FALSE)` ;
     - le Recall est non croissant quand le seuil augmente ;
-    - le seuil choisi ne dépend pas des étiquettes du test.
+    - le seuil choisi ne dépend pas des étiquettes du test ;
+    - référence naïve : AUC de 0,5 pour un score constant, Precision égale à la prévalence et Recall à 1 pour la règle « tout positif » ;
+    - `testServer` : aucune métrique du test n'est calculée avant le bouton, et les métriques du test ne changent pas quand un curseur bouge après l'évaluation, et un nouvel entraînement les efface.
   - Hors périmètre : importances, rééquilibrage.
 
 - [ ] **E11b. Importances et rééquilibrage dans l'interface**
   - Dépend de : E7, E11a.
   - Objectif : variables les plus importantes, et branchement de E7.
   - Contenu :
-    - `perm_importance(predict_fn, test_raw, y, vars, n_rep, seed)` : baisse d'AUC quand on permute une variable d'origine, avec une prédiction qui inclut `apply_recipe`, calculée sur un sous-échantillon du test (taille réglable) ;
+    - `perm_importance(predict_fn, test_raw, y, vars, n_rep, seed)` : baisse d'AUC quand on permute une variable d'origine, avec une prédiction qui inclut `apply_recipe`, calculée après le bouton « Évaluer sur le test », sur un sous-échantillon du test (taille réglable) ;
     - graphique par modèle ;
     - pour la logistique : valeur absolue des coefficients standardisés (`|β_j| × s_j`, `s_j` écart-type en 1/n de la colonne j dans l'entraînement après recette) ; odds ratios et IC à 95 % (`exp(cbind(coef(fit), confint.default(fit)))`) sur le modèle non pondéré, avec la mention que ces IC supposent des observations indépendantes ;
     - choix de la stratégie de rééquilibrage, appliquée via `balance_train()` (`quasibinomial` pour la logistique pondérée), répartition des classes affichée après rééquilibrage.
@@ -360,6 +373,7 @@ Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
   - Vérification :
     - test sur données simulées où `y` ne dépend que de `x1` : importance de `x1` > 0, importance d'une variable de bruit proche de 0 ;
     - test : la validation et le test sont identiques avec et sans rééquilibrage ;
+    - `testServer` : aucune importance n'est calculée avant le bouton « Évaluer sur le test » ;
     - temps de calcul des importances sur BAAC mesuré dans l'app déployée.
   - Hors périmètre : modèles finaux BAAC.
 
@@ -370,14 +384,14 @@ Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
     - `data-raw/model_vars.R` : liste blanche des variables, spécification principale (conditions de l'accident) et ablation (+ `col`, `choc`, `obs`, `obsm`) ;
     - sur `accidents_full.rds` : découpage 2019-2022 / 2023 / 2024, en réutilisant les fonctions de `R/` (recette, modèles, métriques) ;
     - contrôle de fuite sur 2023 : AUC univariée de chaque variable et taux de NA selon `grave` ; toute variable d'AUC univariée supérieure à 0,8 est relue avant d'être gardée ;
-    - rééquilibrage (aucun ou pondération) et seuil (F1 maximal) choisis sur 2023 par une fonction qui ne reçoit que 2023 ;
+    - petite grille de réglages (quelques valeurs de `mtry` et `min.node.size` pour la forêt, de `cp` pour l'arbre ; logistique sans réglage), rééquilibrage (aucun ou pondération) et seuil (F1 maximal) choisis sur 2023 (critère AUC pour les réglages) par une fonction qui reçoit l'entraînement 2019-2022 et 2023, jamais 2024 ;
     - run sur 10 % de l'entraînement, temps et mémoire mesurés.
   - Fichiers : `data-raw/model_vars.R`, `data-raw/03_final_models.R`.
   - Vérification :
     - assertion `all(vars %in% whitelist)`, aucun identifiant ni `an` parmi les variables ;
-    - test : permuter les étiquettes de 2024 ne change ni le seuil ni la stratégie retenus ;
-    - tableau des AUC univariées imprimé ;
-    - temps et mémoire du run à 10 % imprimés, et estimation pour le run complet.
+    - test : permuter les étiquettes de 2024 ne change ni les réglages, ni le seuil, ni la stratégie retenus ;
+    - tableau des AUC univariées imprimé ; AUC sur 2023 de chaque combinaison de la grille imprimée ;
+    - temps et mémoire du run à 10 % imprimés, grille comprise, et estimation pour le run complet.
   - Hors périmètre : run complet, intervalles, importances (E12b).
 
 - [ ] **E12b. Run complet et résultats de l'étude**
@@ -385,7 +399,7 @@ Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
   - Objectif : résultats de modélisation de l'étude, reproductibles, sans fuite.
   - Contenu :
     - run complet, lancé après validation si l'estimation de E12a dépasse quelques minutes (sinon sous-échantillonnage de l'entraînement par accident, ou Colab) ;
-    - évaluation unique sur 2024 : P, R, F1, AUC, points ROC, coefficients standardisés et odds ratios de la logistique ;
+    - évaluation unique sur 2024 : P, R, F1, AUC, points ROC, coefficients standardisés et odds ratios de la logistique, avec la référence naïve (prévalence de 2024) ;
     - IC à 95 % de l'AUC et des écarts d'AUC entre modèles par bootstrap par grappes (accidents de 2024 tirés avec remise, B = 1000, sur les prédictions déjà calculées) ;
     - importances par permutation sur un sous-échantillon d'accidents de 2024.
   - Fichiers : `data-raw/03_final_models.R` (sortie : `data/final_models.rds`).
@@ -437,10 +451,11 @@ Couvre : les critères d'acceptation (annexe E) et la saisie de l'URL (A.5).
 1. Les bonus B1 et B2 : ils ne sont pas commencés.
 2. `rpart` : on garde la logistique et la forêt, qui suffisent au cadrage.
 3. Le mode de découpage « par variable » dans l'app : on garde le stratifié et le groupé, exigés par le cadrage.
-4. L'ablation des variables du choc (E12) : on garde la spécification principale.
-5. Les odds ratios et leurs IC (E11b) : on garde les coefficients standardisés, exigés par le cadrage.
-6. Le bootstrap par grappes (E12b) : on garde les estimations ponctuelles, et la dépendance entre usagers est écrite dans les limites.
-7. La question Q3 de l'étude de cas, réduite à trois ou quatre conditions.
+4. La grille de réglages des modèles finaux (E12a) : on garde les réglages par défaut de `ranger` et `rpart`, et l'étude le signale.
+5. L'ablation des variables du choc (E12) : on garde la spécification principale.
+6. Les odds ratios et leurs IC (E11b) : on garde les coefficients standardisés, exigés par le cadrage.
+7. Le bootstrap par grappes (E12b) : on garde les estimations ponctuelles, et la dépendance entre usagers est écrite dans les limites.
+8. La question Q3 de l'étude de cas, réduite à trois ou quatre conditions.
 
 On ne coupe jamais : les exigences de l'annexe A (dont les trois méthodes de rééquilibrage, les visualisations et indices du cours, les métriques, l'importance des variables), le contrat « recette apprise » et la liste blanche des variables, la gestion des erreurs, le déploiement et la recette E16.
 
@@ -484,8 +499,11 @@ Si `main` a avancé pendant l'étape (fusion d'une étape menée en parallèle),
 
 ## Références
 
+- Au, T. C. (2018). Random Forests, Decision Trees, and Categorical Predictors: The "Absent Levels" Problem. *JMLR*, 19(45), 1-30.
 - Breiman, L. (2001). Random Forests. *Machine Learning*, 45, 5-32.
+- Wright, M. N. et König, I. R. (2019). Splitting on categorical predictors in random forests. *PeerJ*, 7, e6339.
 - Wright, M. N. et Ziegler, A. (2017). ranger: A Fast Implementation of Random Forests for High Dimensional Data in C++ and R. *Journal of Statistical Software*, 77(1).
+- Probst, P., Wright, M. N. et Boulesteix, A.-L. (2019). Hyperparameters and tuning strategies for random forest. *WIREs Data Mining and Knowledge Discovery*, 9(3), e1301.
 - Robin, X. et al. (2011). pROC: an open-source package for R and S+ to analyze and compare ROC curves. *BMC Bioinformatics*, 12, 77.
 - Strobl, C., Boulesteix, A.-L., Zeileis, A. et Hothorn, T. (2007). Bias in random forest variable importance measures. *BMC Bioinformatics*, 8, 25.
 - Fisher, A., Rudin, C. et Dominici, F. (2019). All Models are Wrong, but Many are Useful. *JMLR*, 20(177).
@@ -543,7 +561,7 @@ Un autre package n'est ajouté que si ni R de base ni la liste ne font déjà la
 
 ### D. Plan B
 
-Bank Marketing (UCI, version `bank-additional-full` : 41 188 lignes, 20 variables explicatives, environ 11 % de « yes ») devient l'étude de cas : `duration` exclue (connue seulement après l'appel, la documentation UCI recommande de l'écarter), `unknown` traité comme valeur manquante, `pdays = 999` comme code spécial. Seuls `data-raw/` et l'onglet 5 changent, et un autre jeu de recette est choisi dans la liste de datasets du cours.
+Bank Marketing (UCI, version `bank-additional-full` : 41 188 lignes, 20 variables explicatives, environ 11 % de « yes ») devient l'étude de cas : `duration` exclue (connue seulement après l'appel, la documentation UCI recommande de l'écarter), `unknown` traité comme valeur manquante, `pdays = 999` comme code spécial. Les lignes sont rangées par date (mai 2008 à novembre 2010, d'après la documentation UCI) sans colonne d'année : `data-raw/` reconstitue l'année à partir des retours en arrière de `month` d'une ligne à la suivante, contrôle qu'on obtient bien la période annoncée, et l'étude découpe par période (entraînement, validation, test dans l'ordre chronologique) plutôt qu'au hasard, directement dans `data-raw/`. La prévalence de chaque partie est affichée, et un éventuel glissement entre périodes (prévalence, indicateurs macroéconomiques comme `euribor3m`) est discuté dans les limites. Seuls `data-raw/` et l'onglet 5 changent, et un autre jeu de recette est choisi dans la liste de datasets du cours.
 
 ### E. Critères d'acceptation
 
