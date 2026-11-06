@@ -182,8 +182,6 @@ Couvre : le contrat entre onglets et un premier déploiement (A.5).
   - Vérification : le script se relance de zéro ; chaque point « à vérifier » de l'annexe C a une réponse appuyée par une commande ou une sortie dans `SCHEMA.md`.
   - Hors périmètre : nettoyage et jointure.
 
-- [ ] **Vérification du poste Windows** (binôme, dès que possible ; ne bloque pas les étapes suivantes) : R 4.5.2 et Git for Windows installés (`R --version`), le dépôt est cloné, `renv::restore()` passe, `git status` est propre juste après le clone, les tests passent, l'app se lance, et `deploy.R` redéploie vers la même URL.
-
 - [x] **Redéploiement J1** : après fusion de E2 et E3, `main` redéployé ; `students.csv` chargé sur l'URL publique, dimensions affichées.
 
 ### Jalon 2 : table BAAC propre, point de décision
@@ -475,7 +473,7 @@ On ne coupe jamais : les exigences de l'annexe A (dont les trois méthodes de r�
 | Modalité positive mal codée (`glm` modélise le second niveau) | test du signe de l'effet en E10b | recodage explicite de la cible en 0/1 |
 | Temps de calcul dans l'app (forêt et permutations) | mesure en E10b et E11b sur l'app déployée | moins d'arbres dans l'app, importances sur un sous-échantillon |
 | Run final trop lourd pour 8 Go de RAM | run sur 10 % en E12a | sous-échantillonner l'entraînement par accident, ou passer par Colab |
-| Deux applications déployées sous deux URL | redéploiement depuis le second poste (Vérification du poste Windows) | `deploy.R` versionné, même nom d'application, `forceUpdate = TRUE` |
+| Deux applications déployées sous deux URL | premier redéploiement depuis le second poste, s'il a lieu | `deploy.R` versionné, même nom d'application, `forceUpdate = TRUE` |
 | Conflits Git entre branches | fusions qui échouent | dépendances respectées (« Dépend de »), fichiers disjoints entre étapes menées en parallèle, `app.R` modifié seulement en E1, E2 et E13 |
 
 ## Workflow Git
