@@ -125,7 +125,7 @@ mod_case_study_server(id, baac_sample, final_results)
 
 Couvre : le contrat entre onglets et un premier déploiement (A.5).
 
-- [ ] **E1. Squelette déployé**
+- [x] **E1. Squelette déployé**
   - Objectif : postes de travail et dépôt prêts, application vide déployée.
   - Contenu :
     - installer R 4.5.2, la dernière version signalée comme acceptée par shinyapps.io (R 4.6.2 y est refusée : « Unsupported R version 4.6.2 for operating system jammy ») : sur macOS, l'installeur `R-4.5.2-arm64.pkg` de CRAN ; sur Windows, `R-4.5.2-win.exe` (anciennes versions de CRAN), plus Git for Windows, dont Git Bash sert de terminal pour que toutes les commandes du plan soient identiques sur les deux postes ; même version sur les deux postes, vérifiée par `R --version` et enregistrée dans `renv.lock`, et le premier déploiement confirme que shinyapps.io l'accepte ; `mgcv` et `nlme` restent aux versions livrées avec R 4.5.2, pour éviter toute compilation (`nlme` 3.1-171 n'a pas de binaire macOS pour R 4.5 et demanderait gfortran) ;
@@ -138,7 +138,7 @@ Couvre : le contrat entre onglets et un premier déploiement (A.5).
     - `README.md` minimal : lancer, tester, déployer ;
     - `tests/testthat/setup.R`, qui charge les fonctions de `R/`, et un test de fumée (l'app se construit sans erreur) ;
     - travail sur la branche `e1-skeleton` et demande de fusion, comme pour toutes les étapes ; accès en écriture au dépôt pour l'autre membre ; après la fusion, `main` protégée sur GitHub (modifiable seulement par demande de fusion) ;
-    - premier déploiement par `deploy.R` ; relever les limites réelles de l'offre gratuite (RAM, heures actives, taille du bundle) et régler le délai d'inactivité au minimum.
+    - premier déploiement par `deploy.R` ; relever les limites réelles de l'offre gratuite (RAM, heures actives, taille du bundle) dans le README ; le délai d'inactivité reste à 15 min, non modifiable sur l'offre gratuite, et chaque réveil de l'app consomme donc au moins 15 min d'heures actives.
   - Fichiers : `app.R`, `renv.lock`, `.Rprofile`, `renv/`, `.gitignore`, `.gitattributes`, `deploy.R`, `README.md`, `CLAUDE.md`, `PLAN.md`, `data/.gitkeep`, `tests/testthat/setup.R`, `tests/testthat/test-smoke.R`.
   - Vérification :
     - `Rscript -e 'shiny::runApp()'` affiche les 5 onglets ;
@@ -147,7 +147,6 @@ Couvre : le contrat entre onglets et un premier déploiement (A.5).
     - les logs de déploiement ne listent que les fichiers prévus ;
     - avant le premier commit de la branche, `git status --short` ne liste que des fichiers à versionner (ni `.DS_Store`, ni `renv/library`, ni données) ;
     - `git ls-remote origin` montre `main`, et un push direct sur `main` depuis le second poste est refusé ;
-    - sur le poste Windows, le dépôt est cloné, `renv::restore()` passe, `git status` est propre juste après le clone, les tests passent, l'app se lance, et `deploy.R` redéploie vers la même URL.
   - Hors périmètre : tout contenu dans les onglets.
 
 - [ ] **E2. Contrat entre onglets**
@@ -182,6 +181,8 @@ Couvre : le contrat entre onglets et un premier déploiement (A.5).
   - Fichiers : `data-raw/01_download_baac.R`, `data-raw/SCHEMA.md` (fichiers bruts dans `data-raw/raw/`, ignoré).
   - Vérification : le script se relance de zéro ; chaque point « à vérifier » de l'annexe C a une réponse appuyée par une commande ou une sortie dans `SCHEMA.md`.
   - Hors périmètre : nettoyage et jointure.
+
+- [ ] **Vérification du poste Windows** (binôme, avant le Redéploiement J1) : le dépôt est cloné, `renv::restore()` passe, `git status` est propre juste après le clone, les tests passent, l'app se lance, et `deploy.R` redéploie vers la même URL.
 
 - [ ] **Redéploiement J1** : après fusion de E2 et E3, `main` redéployé ; `students.csv` chargé sur l'URL publique, dimensions affichées.
 
@@ -464,7 +465,7 @@ On ne coupe jamais : les exigences de l'annexe A (dont les trois méthodes de r�
 | Risque | Détection précoce | Parade |
 |---|---|---|
 | Préparation BAAC plus longue que prévu | E3 pas terminée à la fin du jalon 1, ou E4 non fusionnée au point de décision | plan B (annexe D) |
-| Heures actives de l'offre gratuite épuisées en fin de projet | consommation relevée à chaque redéploiement | délai d'inactivité minimal, tests surtout en local, offre payante ponctuelle ou Posit Connect Cloud |
+| Heures actives de l'offre gratuite épuisées en fin de projet | consommation relevée à chaque redéploiement | tests surtout en local, offre payante ponctuelle ou Posit Connect Cloud |
 | Mémoire du serveur dépassée (≈ 1 Go) | mesures en E1, au redéploiement J3 et au redéploiement J4 | réduire l'échantillon BAAC, `.rds` chargés une fois, éviter les copies de données dans les réactifs, plafond de colonnes, entraînement limité en taille |
 | Session qui plante sur un fichier inattendu | tests de robustesse en E2, E6a et E10b | `tryCatch` et messages, type id au-delà de 50 modalités, colonnes constantes retirées |
 | `Hmisc` ou `UsingR` ne s'installent pas sur le serveur | premier déploiement en E1 | recoder les deux graphiques en `ggplot2` |
