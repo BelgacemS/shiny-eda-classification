@@ -149,7 +149,7 @@ Couvre : le contrat entre onglets et un premier déploiement (A.5).
     - `git ls-remote origin` montre `main`, et un push direct sur `main` est refusé.
   - Hors périmètre : tout contenu dans les onglets.
 
-- [ ] **E2. Contrat entre onglets**
+- [x] **E2. Contrat entre onglets**
   - Dépend de : E1.
   - Objectif : tous les modules existent avec leurs signatures définitives, pour que les étapes suivantes avancent en parallèle sans toucher `app.R`.
   - Contenu :
