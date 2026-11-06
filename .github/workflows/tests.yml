@@ -1,0 +1,25 @@
+name: tests
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  testthat:
+    runs-on: ubuntu-24.04
+    env:
+      # Binary packages from Posit Package Manager instead of source builds from CRAN.
+      RENV_CONFIG_REPOS_OVERRIDE: https://packagemanager.posit.co/cran/__linux__/noble/latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "4.5.2"
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-renv@v2
+
+      # Tests that need the course CSV files skip themselves: the files are not versioned.
+      - name: Run tests
+        run: Rscript -e 'testthat::test_dir("tests/testthat")'
