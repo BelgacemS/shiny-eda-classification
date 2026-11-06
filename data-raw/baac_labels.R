@@ -321,13 +321,13 @@ baac_labels <- list(
 baac_missing_codes <- list(trajet = "0")
 
 # Vehicle groups for the study (vulnerable users against car occupants).
-# Detailed catv label -> group; built on codes so that a label change does not break it.
+# catv code -> group, on codes so that a label change does not break it.
 catv_groups <- c(
   "1" = "Vélo", "80" = "Vélo",
   "50" = "EDP", "60" = "EDP",
-  "2" = "Deux-roues <= 50 cm3", "30" = "Deux-roues <= 50 cm3", "41" = "Deux-roues <= 50 cm3",
-  "31" = "Deux-roues 50 à 125 cm3", "32" = "Deux-roues 50 à 125 cm3", "42" = "Deux-roues 50 à 125 cm3",
-  "33" = "Deux-roues > 125 cm3", "34" = "Deux-roues > 125 cm3", "43" = "Deux-roues > 125 cm3",
+  "2" = "2RM/3RM <= 50 cm3", "30" = "2RM/3RM <= 50 cm3", "41" = "2RM/3RM <= 50 cm3",
+  "31" = "2RM/3RM 50 à 125 cm3", "32" = "2RM/3RM 50 à 125 cm3", "42" = "2RM/3RM 50 à 125 cm3",
+  "33" = "2RM/3RM > 125 cm3", "34" = "2RM/3RM > 125 cm3", "43" = "2RM/3RM > 125 cm3",
   "3" = "Voiturette, quad", "35" = "Voiturette, quad", "36" = "Voiturette, quad",
   "7" = "VL",
   "10" = "VU",
@@ -340,8 +340,8 @@ catv_groups <- c(
 )
 
 catv_group_levels <- c(
-  "VL", "VU", "Vélo", "EDP", "Deux-roues <= 50 cm3", "Deux-roues 50 à 125 cm3",
-  "Deux-roues > 125 cm3", "Voiturette, quad", "PL, tracteur routier", "Bus, car",
+  "VL", "VU", "Vélo", "EDP", "2RM/3RM <= 50 cm3", "2RM/3RM 50 à 125 cm3",
+  "2RM/3RM > 125 cm3", "Voiturette, quad", "PL, tracteur routier", "Bus, car",
   "Train, tramway", "Engin spécial, tracteur agricole", "Autre, indéterminable"
 )
 
