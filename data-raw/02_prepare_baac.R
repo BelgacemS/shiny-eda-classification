@@ -56,7 +56,7 @@ read_baac <- function(year, table, cols) {
   dt[, (cols) := lapply(.SD, trimws)]
   # Identifiers use non-breaking spaces as thousands separators ("138 306 524").
   for (id in intersect(c("id_vehicule", "id_usager"), cols)) {
-    set(dt, j = id, value = gsub(" ", "", dt[[id]], fixed = TRUE))
+    set(dt, j = id, value = gsub("\u00a0", "", dt[[id]], fixed = TRUE))
   }
   dt
 }
@@ -150,6 +150,14 @@ prepare_year <- function(year) {
   dt[, tranche_horaire := cut(hour, breaks = time_slot_breaks, labels = time_slot_levels, right = FALSE)]
 
   for (v in c("nbv", "lartpc", "larrout", "occutc", "lat", "long")) set(dt, j = v, value = to_number(dt[[v]]))
+  # The guide reads a zero as an empty cell, and 0 lanes or a 0 m wide road make
+  # no sense; lartpc = 0 stays (no central reservation).
+  dt[nbv == 0, nbv := NA]
+  dt[larrout == 0, larrout := NA]
+  # Coordinates only serve a map: points outside mainland France and Corsica
+  # (swapped latitude and longitude, placeholder 11, 11) are set to NA.
+  outside_box <- which(!(dt$lat >= 41 & dt$lat <= 51.2 & dt$long >= -5.5 & dt$long <= 10))
+  dt[outside_box, c("lat", "long") := .(NA_real_, NA_real_)]
   dt[, vma := to_number(vma)]
   dt[vma < vma_range[1] | vma > vma_range[2], vma := NA]
 
@@ -158,6 +166,12 @@ prepare_year <- function(year) {
     set(dt, j = v, value = label_codes(dt[[v]], labels))
   }
   dt[, dep := factor(dep, levels = metro_deps)]
+
+  # Pedestrian variables are coded -1 or 0 for other users depending on the year:
+  # they are set to "not applicable" for every non-pedestrian.
+  not_pedestrian <- which(dt$catu != "Piéton")
+  levels(dt$etatp) <- c(levels(dt$etatp), "Sans objet")
+  dt[not_pedestrian, `:=`(locp = "Sans objet", actp = "Non renseigné ou sans objet", etatp = "Sans objet")]
 
   dt <- dt[, ..output_cols]
   list(data = dt, counts = as.data.table(counts), unknown = unknown)
