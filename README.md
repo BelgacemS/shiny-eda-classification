@@ -37,3 +37,9 @@ Deployment to shinyapps.io runs from a clean `main` branch. The account must fir
 ```bash
 Rscript deploy.R
 ```
+
+Free plan limits that apply to this app (checked on 2026-11-06):
+
+- memory: `large` instance, 1024 MB (`rsconnect::showProperties()`, shinyapps.io guide);
+- bundle size: 1 GB;
+- instance idle timeout: 15 minutes, the default; the change to 5 minutes through `rsconnect::setProperty()` is accepted but has no effect on the free plan.
