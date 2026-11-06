@@ -146,7 +146,7 @@ Couvre : le contrat entre onglets et un premier déploiement (A.5).
     - l'URL shinyapps.io affiche les 5 onglets, sans erreur dans les logs au chargement de `Hmisc` et `UsingR` ;
     - les logs de déploiement ne listent que les fichiers prévus ;
     - avant le premier commit de la branche, `git status --short` ne liste que des fichiers à versionner (ni `.DS_Store`, ni `renv/library`, ni données) ;
-    - `git ls-remote origin` montre `main`, et un push direct sur `main` depuis le second poste est refusé ;
+    - `git ls-remote origin` montre `main`, et un push direct sur `main` est refusé.
   - Hors périmètre : tout contenu dans les onglets.
 
 - [ ] **E2. Contrat entre onglets**
@@ -182,7 +182,7 @@ Couvre : le contrat entre onglets et un premier déploiement (A.5).
   - Vérification : le script se relance de zéro ; chaque point « à vérifier » de l'annexe C a une réponse appuyée par une commande ou une sortie dans `SCHEMA.md`.
   - Hors périmètre : nettoyage et jointure.
 
-- [ ] **Vérification du poste Windows** (binôme, avant le Redéploiement J1) : le dépôt est cloné, `renv::restore()` passe, `git status` est propre juste après le clone, les tests passent, l'app se lance, et `deploy.R` redéploie vers la même URL.
+- [ ] **Vérification du poste Windows** (binôme, avant le Redéploiement J1) : R 4.5.2 et Git for Windows installés (`R --version`), le dépôt est cloné, `renv::restore()` passe, `git status` est propre juste après le clone, les tests passent, l'app se lance, et `deploy.R` redéploie vers la même URL.
 
 - [ ] **Redéploiement J1** : après fusion de E2 et E3, `main` redéployé ; `students.csv` chargé sur l'URL publique, dimensions affichées.
 
@@ -475,7 +475,7 @@ On ne coupe jamais : les exigences de l'annexe A (dont les trois méthodes de r�
 | Modalité positive mal codée (`glm` modélise le second niveau) | test du signe de l'effet en E10b | recodage explicite de la cible en 0/1 |
 | Temps de calcul dans l'app (forêt et permutations) | mesure en E10b et E11b sur l'app déployée | moins d'arbres dans l'app, importances sur un sous-échantillon |
 | Run final trop lourd pour 8 Go de RAM | run sur 10 % en E12a | sous-échantillonner l'entraînement par accident, ou passer par Colab |
-| Deux applications déployées sous deux URL | redéploiement depuis le second poste en E1 | `deploy.R` versionné, même nom d'application, `forceUpdate = TRUE` |
+| Deux applications déployées sous deux URL | redéploiement depuis le second poste (Vérification du poste Windows) | `deploy.R` versionné, même nom d'application, `forceUpdate = TRUE` |
 | Conflits Git entre branches | fusions qui échouent | dépendances respectées (« Dépend de »), fichiers disjoints entre étapes menées en parallèle, `app.R` modifié seulement en E1, E2 et E13 |
 
 ## Workflow Git
