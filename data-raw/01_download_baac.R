@@ -57,7 +57,9 @@ download_resource <- function(id, dest) {
   if (status != 0 || file.size(tmp) == 0) {
     stop("Download failed for resource ", id, call. = FALSE)
   }
-  file.rename(tmp, dest)
+  if (!file.rename(tmp, dest)) {
+    stop("Cannot move ", tmp, " to ", dest, call. = FALSE)
+  }
   invisible(TRUE)
 }
 
