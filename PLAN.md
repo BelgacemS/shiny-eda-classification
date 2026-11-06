@@ -182,9 +182,9 @@ Couvre : le contrat entre onglets et un premier déploiement (A.5).
   - Vérification : le script se relance de zéro ; chaque point « à vérifier » de l'annexe C a une réponse appuyée par une commande ou une sortie dans `SCHEMA.md`.
   - Hors périmètre : nettoyage et jointure.
 
-- [ ] **Vérification du poste Windows** (binôme, avant le Redéploiement J1) : R 4.5.2 et Git for Windows installés (`R --version`), le dépôt est cloné, `renv::restore()` passe, `git status` est propre juste après le clone, les tests passent, l'app se lance, et `deploy.R` redéploie vers la même URL.
+- [ ] **Vérification du poste Windows** (binôme, dès que possible ; ne bloque pas les étapes suivantes) : R 4.5.2 et Git for Windows installés (`R --version`), le dépôt est cloné, `renv::restore()` passe, `git status` est propre juste après le clone, les tests passent, l'app se lance, et `deploy.R` redéploie vers la même URL.
 
-- [ ] **Redéploiement J1** : après fusion de E2 et E3, `main` redéployé ; `students.csv` chargé sur l'URL publique, dimensions affichées.
+- [x] **Redéploiement J1** : après fusion de E2 et E3, `main` redéployé ; `students.csv` chargé sur l'URL publique, dimensions affichées.
 
 ### Jalon 2 : table BAAC propre, point de décision
 
@@ -558,6 +558,7 @@ Un autre package n'est ajouté que si ni R de base ni la liste ne font déjà la
 - Variables exclues : celles qui décrivent les conséquences de l'accident ; celles qui identifient un accident (`jour`, `hrmn` brut, `lat`, `long`, `com`, `adr`, `voie`, `pr`, `pr1`, et les identifiants `Num_Acc`, `id_vehicule`, `id_usager`, `Num_Veh`), transformées en variables utiles (tranche horaire, jour de la semaine, mois, âge).
 - Difficultés connues : clé `Num_Acc` commune aux 4 tables et `id_vehicule` entre véhicules et usagers ; casse des noms de colonnes variable (`Num_Veh`, `num_Veh`, `num_veh`) ; manquants codés -1 ou 0 selon la variable, vide ou "." ; usagers en fuite (2021 et après) avec sexe, âge et gravité incomplets.
 - À vérifier sur les fichiers : séparateur et encodage selon l'année ; virgule décimale dans `lat` et `long` ; format de `hrmn` ; nom de la clé d'accident en 2022 ; présence de `id_usager` de 2019 à 2024 ; âges et `vma` aberrants.
+- Données 2025 : publiées par l'ONISR le 30 octobre 2026, après le cadrage et l'audit E3. Elles ne sont pas utilisées (la période reste 2019 à 2024, test sur 2024) ; l'étude les cite dans ses limites comme perspective d'un second test temporel.
 - Volume : plusieurs centaines de milliers d'usagers ; préparation hors de l'app (`data-raw/`), échantillon dans l'app, modèles finaux entraînés hors de l'app avec les mêmes fonctions.
 
 ### D. Plan B
