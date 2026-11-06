@@ -188,7 +188,7 @@ Couvre : le contrat entre onglets et un premier déploiement (A.5).
 
 Couvre : les données de l'étude de cas (A.4), ou la bascule sur le plan B.
 
-- [ ] **E4. Table BAAC propre et jointe**
+- [x] **E4. Table BAAC propre et jointe**
   - Dépend de : E3.
   - Objectif : une table au niveau usager, sans fuite, prête pour l'app et pour les modèles finaux.
   - Contenu :
@@ -212,7 +212,7 @@ Couvre : les données de l'étude de cas (A.4), ou la bascule sur le plan B.
     - `Rscript data-raw/02_prepare_baac.R` se relance de zéro.
   - Hors périmètre : bouton BAAC (E5), modèles (E12).
 
-- [ ] **Point de décision BAAC** (fin du jalon 2) : si E4 n'est pas fusionnée, bascule sur le plan B (annexe D).
+- [x] **Point de décision BAAC** (fin du jalon 2) : si E4 n'est pas fusionnée, bascule sur le plan B (annexe D). Décision : E4 terminée, l'étude reste sur BAAC.
 
 ### Jalon 3 : Données et Prétraitement sur n'importe quel CSV
 
