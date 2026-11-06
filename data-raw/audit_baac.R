@@ -32,15 +32,22 @@ key_of <- function(dt) intersect(c("Num_Acc", "Accident_Id"), names(dt))
 section("File format")
 fmt <- rbindlist(lapply(years, function(y) rbindlist(lapply(tables, function(t) {
   path <- raw_path(y, t)
+  # readLines() drops the carriage returns: they are counted on the raw bytes.
+  bytes <- readBin(path, "raw", n = file.size(path))
   lines <- readLines(path, warn = FALSE, encoding = "bytes")
   header <- lines[1]
-  first_bytes <- readBin(path, "raw", n = 3)
+  masked <- gsub("\"[^\"]*\"", "Q", lines, useBytes = TRUE)
   data.table(
     year = y, table = t,
     sep = if (grepl(";", header, fixed = TRUE)) ";" else if (grepl(",", header, fixed = TRUE)) "," else "?",
-    quoted_header = startsWith(header, "\""),
-    bom = identical(first_bytes, as.raw(c(0xef, 0xbb, 0xbf))),
-    crlf = grepl("\r$", header),
+    bom = identical(bytes[1:3], as.raw(c(0xef, 0xbb, 0xbf))),
+    cr_bytes = sum(bytes == as.raw(13)),
+    empty_lines = sum(lines == ""),
+    # Each quoted field becomes Q (quoted text can contain ";"); what remains
+    # shows empty fields without quotes (;; or ; at an end of line) and
+    # non-empty fields without quotes.
+    lines_unquoted_empty = sum(grepl("(^|;)(;|$)", masked[masked != ""], useBytes = TRUE)),
+    lines_unquoted_value = sum(grepl("[^Q;]", masked, useBytes = TRUE)),
     utf8_valid = all(validUTF8(lines)),
     non_ascii_lines = sum(grepl("[^\\x01-\\x7F]", lines, perl = TRUE, useBytes = TRUE)),
     rows = nrow(raw_table(y, t)),
@@ -135,11 +142,13 @@ hr <- rbindlist(lapply(years, function(y) {
 }))
 print_table(hr)
 
-section("Other decimal commas")
+section("Decimal separators")
 for (y in years) for (t in tables) {
   dt <- raw_table(y, t)
-  commas <- names(dt)[vapply(dt, function(x) any(grepl("^-?[0-9]+,[0-9]+$", x)), logical(1))]
-  if (length(commas)) cat(y, t, ":", paste(commas, collapse = ", "), "\n")
+  commas <- names(dt)[vapply(dt, function(x) any(grepl("^-?[0-9]+,[0-9]+$", trimws(x))), logical(1))]
+  dots <- names(dt)[vapply(dt, function(x) any(grepl("^-?[0-9]+\\.[0-9]+$", trimws(x))), logical(1))]
+  if (length(commas)) cat(y, t, ": comma in", paste(commas, collapse = ", "), "\n")
+  if (length(dots)) cat(y, t, ": dot in", paste(dots, collapse = ", "), "\n")
 }
 
 section("Missing value codes (columns that contain each code)")
@@ -286,7 +295,7 @@ geo_metro <- rbindlist(lapply(years, function(y) {
 print_table(geo_metro)
 
 section("Identifier format and uniqueness across years")
-nbsp <- " "
+nbsp <- "\u00a0"
 id_fmt <- rbindlist(lapply(years, function(y) {
   ve <- raw_table(y, "vehicules")
   us <- raw_table(y, "usagers")
@@ -312,4 +321,10 @@ print_table(rbindlist(lapply(years, function(y) {
   lat <- trimws(raw_table(y, "caracteristiques")$lat)
   decimals <- nchar(sub("^[^,]*,", "", lat))
   data.table(year = y, min_decimals = min(decimals), max_decimals = max(decimals))
+})))
+
+section("Users with an empty an_nais but sexe filled in")
+print_table(rbindlist(lapply(years, function(y) {
+  us <- raw_table(y, "usagers")
+  data.table(year = y, empty_an_nais_sexe_known = sum(trimws(us$an_nais) == "" & trimws(us$sexe) != "-1"))
 })))

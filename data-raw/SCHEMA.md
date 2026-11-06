@@ -1,6 +1,6 @@
 # BAAC raw files 2019 to 2024: schema audit
 
-Source: ONISR annual road accident databases on data.gouv.fr (Licence Ouverte), 4 tables per year and the coding guide `description-des-bases-de-donnees-annuelles.pdf` (version of 2026-10-30). Files downloaded on 2026-11-06.
+Source: ONISR annual road accident databases on data.gouv.fr (Licence Ouverte), 4 tables per year and the coding guide `description-des-bases-de-donnees-annuelles.pdf` (dated 21 October 2026, covering 2005 to 2025). Files downloaded on 2026-11-06.
 
 To reproduce, from the project root:
 
@@ -13,7 +13,12 @@ Each finding below names the section of the `audit_baac.R` output that supports 
 
 ## Files
 
-All 24 files share the same format [File format]: separator `;`, every field quoted, valid UTF-8 on every line, no BOM, LF line endings. Non-ASCII characters are accents in addresses and street names, and non-breaking spaces in identifiers (see below).
+All 24 files use the separator `;`, are valid UTF-8 on every line and have no BOM; non-empty fields are always quoted [File format]. Non-ASCII characters include accents in addresses and street names, and non-breaking spaces in identifiers (see below). Three files of 2020 differ from the others:
+
+- `lieux`, `vehicules` and `usagers` 2020 have CRLF line endings (one CR byte per line); every other file has LF endings;
+- `lieux` and `vehicules` 2020 write empty fields without quotes (`;;`, or `;` at the end of a line), on 47 595 and 80 445 lines; everywhere else, an empty field is written `""`.
+
+`fread` reads both forms, and an unquoted empty field gives `""` when columns are read as character, as for a quoted one.
 
 Number of rows:
 
@@ -60,7 +65,7 @@ Vehicle and user identifiers [Vehicle and user identifiers], [Identifier format 
 | point | finding | section |
 |---|---|---|
 | `lat`, `long` | decimal comma in every file (`48,8962100`); 7 decimals in 2019 and 2020, 10 in 2021 and 2022, 8 in 2023 and 2024 | [lat and long], [Birth years of users over 100 in 2019, and decimals of lat] |
-| other decimals | `lartpc` and `larrout` also use a decimal comma from 2020 | [Other decimal commas] |
+| other decimals | `lartpc` and `larrout` use a decimal point in 2019 and a decimal comma from 2020 | [Decimal separators] |
 | geographic outliers | among metropolitan accidents, 1 point outside the bounding box of mainland France and Corsica in 2019 (`11,0000000 11,0000000`) and 3 in 2024 (Corsica, latitude and longitude swapped), none at (0, 0) | [Coordinates of metropolitan accidents] |
 | `hrmn` | always `HH:MM` (`01:30`), every row of every year | [hrmn] |
 | `dep` | 2019 writes departments 1 to 9 without the leading zero (`2` instead of `02`); `2A` and `2B` for Corsica every year; overseas codes 971 to 978 and 986 to 988 | [Department codes] |
@@ -71,7 +76,7 @@ Missing values [Missing value codes], [Whitespace around values]:
 - `-1` is written `" -1"`, with a leading space inside the quotes, in most coded columns (`atm`, `col`, `circ`, `vma`, `senc`, `catv`, `obs`, `grav`, `sexe`, `secu1`...). `fread` keeps spaces inside quotes, so values must be trimmed before any comparison;
 - empty cells: `adr` (2022 on), `voie`, `v1`, `v2`, `lartpc`, `larrout`, `occutc`, and `an_nais` from 2021;
 - `"."` and `"N/A"` only in the free text columns `adr`, `voie` and `v2`;
-- `0` means "not filled in" for some variables only: "non renseigné" for `trajet` and `actp`, but "sans objet" for `vosp`, `obs` and `locp`, "aucun" for `infra`, `situ`, `obsm` and `choc`, "inconnue" for `manv` and `motor`, and "aucun équipement" for `secu1` to `secu3`. Recoding has to follow the guide variable by variable.
+- `0` means "not filled in" for some variables only: "non renseigné" for `trajet`, "non renseigné ou sans objet" for `actp`, "sans objet" for `vosp`, `obs` and `locp`, "aucun" for `infra`, `situ`, `obsm` and `choc`, "inconnu(e)" for `senc`, `manv` and `motor`, and "aucun équipement" for `secu1` to `secu3`. Recoding has to follow the guide variable by variable.
 
 ## Fugitive users
 
@@ -79,10 +84,12 @@ No column flags them [grav, sexe and an_nais of users], [Drivers with sexe and a
 
 - before 2021, no user has `sexe = -1` or a missing `an_nais`;
 - from 2021, users with `sexe = -1` and an empty `an_nais` appear: 3 060, 2 742, 2 422 and 2 390 from 2021 to 2024, almost all drivers (`catu = 1`);
-- their `grav` is `1` (unharmed) or `-1`: 60 times `-1` in 2021, 239 in 2022, 113 in 2023, never in 2024, where all of them have `grav = 1`. Their gravity is not observed, and keeping them would add a block of unharmed users whose real state is unknown;
+- their `grav` is `1` (unharmed) or `-1`: `-1` for 60, 240 and 116 of them from 2021 to 2023, never in 2024 (for the drivers among them: 60, 239, 113, and `grav = 1` for all 2 384 of 2024). Their gravity is not observed, and keeping them would add a block of unharmed users whose real state is unknown;
 - `grav = -1` concerns almost only these users: 60, 240 and 116 of the 60, 241 and 118 users with `grav = -1` from 2021 to 2023, none in 2024.
 
 Rule that identifies them in the files: `sexe = -1` and `an_nais` empty, from 2021.
+
+Apart from them, 7, 132, 176 and 189 users from 2021 to 2024 have an empty `an_nais` with a known `sexe` [Users with an empty an_nais but sexe filled in]: their age is missing, but nothing marks them as fugitive.
 
 ## Ages and speed limits
 
@@ -110,7 +117,7 @@ No negative age. In 2019, the users over 100 were born in 1900 (133), 1901 (43) 
 | 2023 | 4 578 | 0 | 0 | 95 | 0 | 130 |
 | 2024 | 3 630 | 1 | 94 | 263 | 29 | 900 |
 
-The most frequent values are 50, 80, 30, 90, 70 and 110 km/h. Values above 130, and from 1 to 9, are entry errors. 2023 has no value above 130 or below 10, but five times more `-1` than the other years: the cleaning seems to differ for that year.
+The most frequent values are 50, 80, 30, 90, 70 and 110 km/h. Values above 130, and from 1 to 9, look like entry errors. 2023 has no value above 130 or below 10, but five times more `-1` than the other years: the cleaning seems to differ for that year.
 
 ## Answers to the points to check (PLAN.md, annex C)
 
