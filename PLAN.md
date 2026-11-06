@@ -174,11 +174,11 @@ Couvre : le contrat entre onglets et un premier déploiement (A.5).
     - la demande de fusion de E2 affiche la CI en vert ; une demande de fusion de contrôle avec un test volontairement faux est en rouge et ne peut pas être fusionnée, puis elle est fermée sans fusion.
   - Hors périmètre : options d'import et édition des types (E5), toute transformation (E6).
 
-- [ ] **E3. Audit du schéma BAAC 2019 à 2024**
+- [x] **E3. Audit du schéma BAAC 2019 à 2024**
   - Dépend de : E1 (en parallèle de E2).
   - Objectif : connaître toutes les différences entre années avant d'écrire la préparation.
   - Contenu : script de téléchargement des 4 tables × 6 ans et du guide de codification ; `SCHEMA.md` en tableau année × table : colonnes, séparateur, encodage, décimale de `lat` et `long`, format de `hrmn`, nom de la clé d'accident, présence de `id_usager`, nombre de lignes, unicité de `Num_Acc` dans caractéristiques et lieux, codage des usagers en fuite, plages d'âges et de `vma`.
-  - Fichiers : `data-raw/01_download_baac.R`, `data-raw/SCHEMA.md` (fichiers bruts dans `data-raw/raw/`, ignoré).
+  - Fichiers : `data-raw/01_download_baac.R`, `data-raw/audit_baac.R` (commandes qui appuient `SCHEMA.md`), `data-raw/SCHEMA.md` (fichiers bruts dans `data-raw/raw/`, ignoré).
   - Vérification : le script se relance de zéro ; chaque point « à vérifier » de l'annexe C a une réponse appuyée par une commande ou une sortie dans `SCHEMA.md`.
   - Hors périmètre : nettoyage et jointure.
 
