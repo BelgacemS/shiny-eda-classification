@@ -350,14 +350,16 @@ Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
     - sur la validation interne : un curseur de seuil par modèle, initialisé au seuil de F1 maximal, avec matrice de confusion et tableau comparatif (P, R, F1 au seuil courant, AUC) ;
     - référence naïve dans le tableau : score constant (AUC = 0,5) et règle « tout positif » (Precision = prévalence, Recall = 1) ;
     - bouton « Évaluer sur le test » : fige les seuils courants et affiche le même tableau, la matrice de confusion et les ROC sur le test ; déplacer ensuite un curseur ne change plus ces résultats tant qu'on ne relance pas l'évaluation ; un nouvel entraînement efface les résultats du test, qui ne réapparaissent qu'au clic suivant ;
-    - `rpart` ajouté à l'interface commune.
+    - `rpart` ajouté à l'interface commune ;
+    - alerte de fuite : `univariate_auc(x, y)` calcule sur l'entraînement l'AUC de chaque variable explicative prise seule (quanti : la valeur elle-même ; quali : le taux de positifs de la modalité ; `max(AUC, 1 − AUC)`, puisqu'on mesure la force du lien et non son sens) ; au-delà de 0,95, une notification signale une liaison quasi parfaite avec la cible (fuite probable, ou variable dérivée de la cible) sans bloquer l'entraînement ; même fonction que le contrôle de E12a.
   - Fichiers : `R/fct_metrics.R`, `R/fct_models.R`, `R/mod_model.R`, `tests/testthat/test-metrics.R`.
   - Vérification par tests :
     - sur un jeu jouet avec ex aequo, AUC de `pROC` égale à `W / (n₁ n₀)`, `W` étant la statistique de `wilcox.test(..., exact = FALSE)` ;
     - le Recall est non croissant quand le seuil augmente ;
     - le seuil choisi ne dépend pas des étiquettes du test ;
     - référence naïve : AUC de 0,5 pour un score constant, Precision égale à la prévalence et Recall à 1 pour la règle « tout positif » ;
-    - `testServer` : aucune métrique du test n'est calculée avant le bouton, et les métriques du test ne changent pas quand un curseur bouge après l'évaluation, et un nouvel entraînement les efface.
+    - `testServer` : aucune métrique du test n'est calculée avant le bouton, et les métriques du test ne changent pas quand un curseur bouge après l'évaluation, et un nouvel entraînement les efface ;
+    - alerte de fuite : sur un jeu jouet, une variable quali qui recopie la cible et une variable quanti strictement croissante avec elle déclenchent l'alerte (AUC univariée de 1), une variable indépendante de la cible ne la déclenche pas ; `univariate_auc` vaut la même chose pour `x` et `−x`.
   - Hors périmètre : importances, rééquilibrage.
 
 - [ ] **E11b. Importances et rééquilibrage dans l'interface**
@@ -381,15 +383,18 @@ Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
   - Objectif : un script complet et contrôlé, testé sur 10 % de l'entraînement.
   - Contenu :
     - `data-raw/model_vars.R` : liste blanche des variables, spécification principale (conditions de l'accident) et ablation (+ `col`, `choc`, `obs`, `obsm`) ;
+    - équipements de sécurité : dans `02_prepare_baac.R`, `secu1` à `secu3` remplacés par un indicateur par équipement (ceinture, casque, dispositif enfants, gilet, airbag, gants ; « oui » si l'une des trois cases le mentionne, NA si aucune case n'est renseignée). Les trois cases ne sont pas ordonnées et le codage d'une case vide varie selon l'année (`secu3 = 0` « Aucun équipement » passe de quelques centaines d'usagers par an à plus de 10 000 en 2024, relevé en E4) : un indicateur par équipement ne dépend pas de ce codage ;
+    - contrôle de stabilité du codage, avant de figer la liste blanche : pour chaque variable candidate, taux de NA et part de chaque modalité par année, sur 2019 à 2023 seulement (2024 n'est pas consulté) ; une variable dont le codage change d'une année à l'autre (déjà vus : `-1` de `nbv` et `vosp` 4 à 7 fois plus fréquents à partir de 2023) est recodée ou retirée, et la raison est écrite en commentaire dans `model_vars.R` ; ces décisions reposent sur le codage et le guide, jamais sur un score ;
     - sur `accidents_full.rds` : découpage 2019-2022 / 2023 / 2024, en réutilisant les fonctions de `R/` (recette, modèles, métriques) ;
     - contrôle de fuite sur 2023 : AUC univariée de chaque variable et taux de NA selon `grave` ; toute variable d'AUC univariée supérieure à 0,8 est relue avant d'être gardée ;
     - petite grille de réglages (quelques valeurs de `mtry` et `min.node.size` pour la forêt, de `cp` pour l'arbre ; logistique sans réglage), rééquilibrage (aucun ou pondération) et seuil (F1 maximal) choisis sur 2023 (critère AUC pour les réglages) par une fonction qui reçoit l'entraînement 2019-2022 et 2023, jamais 2024 ;
     - run sur 10 % de l'entraînement, temps et mémoire mesurés.
-  - Fichiers : `data-raw/model_vars.R`, `data-raw/03_final_models.R`.
+  - Fichiers : `data-raw/model_vars.R`, `data-raw/03_final_models.R`, `data-raw/02_prepare_baac.R` (indicateurs d'équipement).
   - Vérification :
     - assertion `all(vars %in% whitelist)`, aucun identifiant ni `an` parmi les variables ;
     - test : permuter les étiquettes de 2024 ne change ni les réglages, ni le seuil, ni la stratégie retenus ;
-    - tableau des AUC univariées imprimé ; AUC sur 2023 de chaque combinaison de la grille imprimée ;
+    - tableau des AUC univariées imprimé (`univariate_auc` de `R/fct_metrics.R`) ; tableau de stabilité par année 2019-2023 imprimé ; AUC sur 2023 de chaque combinaison de la grille imprimée ;
+    - indicateurs d'équipement : sur quelques usagers construits à la main (ceinture en case 2, gants + airbag, aucune case renseignée), valeurs attendues ;
     - temps et mémoire du run à 10 % imprimés, grille comprise, et estimation pour le run complet.
   - Hors périmètre : run complet, intervalles, importances (E12b).
 
@@ -421,7 +426,7 @@ Couvre : l'étude de cas (A.4).
     - démarche justifiée : unité usager, période 2019-2024, échantillonnage par accident, découpage temporel, liste blanche des variables, seuil choisi sur 2023, ce que montre l'ablation ;
     - partie descriptive (Q1 à Q3) calculée en direct sur l'échantillon déployé par les mêmes fonctions que les onglets 3 et 4, donc reproductible à l'identique ;
     - partie modélisation lue dans `final_results`, avec l'ablation, la comparaison pondération contre aucun rééquilibrage, et la cohérence avec la partie descriptive ;
-    - pour chaque figure, les réglages exacts pour la rejouer dans les onglets 1 à 4 (fichier, variables, options) ; pour les modèles, la réplication dans l'app est approchée (échantillon, validation interne au lieu de 2023), ce que l'onglet dit ;
+    - pour chaque figure, les réglages exacts pour la rejouer dans les onglets 1 à 4 (fichier, variables, options) ; pour les modèles, la réplication dans l'app est approchée (échantillon, validation interne au lieu de 2023), ce que l'onglet dit ; les réglages à rejouer n'incluent jamais `grav` parmi les variables explicatives : c'est la source de la cible, et l'onglet explique pourquoi en renvoyant à l'alerte de fuite de l'onglet 4 ;
     - limites : avertissement officiel sur « blessé hospitalisé », sous-déclaration des accidents, échantillonnage, dépendance entre usagers d'un même accident (traitée par le bootstrap par grappes, pas par les IC de Wald), importance par permutation faussée par les variables corrélées (Hooker et al., 2021), association n'est pas causalité.
   - Fichiers : `R/mod_case_study.R` (conteneur), `R/case_study_descriptive.R`, `R/case_study_models.R`, `app.R` si besoin.
   - Vérification : liste des chiffres cités, chacun associé à l'onglet ou au script qui le produit.
