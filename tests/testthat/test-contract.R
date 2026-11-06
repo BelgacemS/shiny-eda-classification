@@ -101,3 +101,35 @@ test_that("the case study tab shows a message without final results", {
     expect_match(output$status$html, "absent")
   })
 })
+
+write_bytes <- function(bytes) {
+  path <- tempfile(fileext = ".csv")
+  writeBin(bytes, path)
+  path
+}
+
+test_that("a non UTF-8 file is refused instead of being truncated", {
+  latin1 <- write_bytes(c(charToRaw("x,ville\n1,Paris\n2,Orl"), as.raw(0xe9),
+                          charToRaw("ans\n3,Lyon\n4,Nice\n")))
+  expect_error(read_table_file(latin1), "UTF-8")
+  shiny::testServer(mod_data_server, args = list(baac_sample = NULL), {
+    session$setInputs(file = upload(latin1))
+    expect_null(session$returned())
+  })
+})
+
+test_that("a UTF-8 BOM and a missing final newline are handled", {
+  bom <- write_bytes(c(as.raw(c(0xef, 0xbb, 0xbf)), charToRaw("x,y\n1,a\n2,b")))
+  # read.csv() only warns about the incomplete final line (message depends on the locale).
+  expect_warning(data <- read_table_file(bom))
+  expect_equal(names(data), c("x", "y"))
+  expect_equal(nrow(data), 2L)
+})
+
+test_that("the contract holds on a data.table", {
+  dt <- data.table::data.table(x = c(1, 2, 3), g = c("a", "b", "a"))
+  ds <- make_dataset(dt, c(x = "quanti", g = "quali"))
+  expect_true(validate_dataset(ds))
+  bad <- list(data = dt, var_types = c(x = "quanti", g = "quali"))
+  expect_false(validate_dataset(bad))
+})
