@@ -7,7 +7,12 @@ VAR_TYPES <- c("quanti", "quali", "id", "ignore")
 MAX_QUALI_LEVELS <- 50
 
 # Default import options; the import settings come in E5.
+# read.csv() stops at the first invalid byte with only a warning, which would
+# silently truncate a Latin-1 file: the encoding is checked first.
 read_table_file <- function(path) {
+  if (!all(validUTF8(readLines(path, warn = FALSE)))) {
+    stop("le fichier n'est pas encodé en UTF-8.", call. = FALSE)
+  }
   utils::read.csv(path, fileEncoding = "UTF-8-BOM", stringsAsFactors = FALSE)
 }
 
@@ -54,6 +59,7 @@ has_all_distinct <- function(x) {
 
 # Builds a dataset from raw data and types: quali columns become factors.
 make_dataset <- function(data, var_types) {
+  data <- as.data.frame(data)
   var_types <- var_types[names(data)]
   quali <- names(var_types)[var_types == "quali"]
   data[quali] <- lapply(data[quali], as_factor)
@@ -78,9 +84,10 @@ validate_dataset <- function(dataset) {
   if (!identical(names(types), names(data)) || !all(types %in% VAR_TYPES)) {
     return(FALSE)
   }
-  quanti_ok <- vapply(data[types == "quanti"], is.numeric, logical(1))
-  quali_ok <- vapply(data[types == "quali"], is.factor, logical(1))
-  all(quanti_ok) && all(quali_ok)
+  # Column checks on the whole list, then subset: data[logical] would index rows on a data.table.
+  is_num <- vapply(data, is.numeric, logical(1))
+  is_fac <- vapply(data, is.factor, logical(1))
+  all(is_num[types == "quanti"]) && all(is_fac[types == "quali"])
 }
 
 format_dims <- function(data) {
