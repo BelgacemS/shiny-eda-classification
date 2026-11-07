@@ -36,21 +36,24 @@ clean_dataset <- function(dataset, drop_cols = character(0), drop_incomplete = F
   list(data = data, var_types = var_types)
 }
 
-# Recipe settings from the inputs of the tab; NULL inputs keep the defaults.
+# Recipe settings from the inputs of the tab. A NULL or empty input keeps the
+# default; so does a number outside its range (the min and max of numericInput
+# are not enforced on what the user types).
 build_recipe <- function(input) {
   recipe <- default_recipe()
-  set <- function(value, current) if (is.null(value) || length(value) == 0 || is.na(value[1])) current else value
+  set <- function(value, current, valid = function(v) TRUE) {
+    if (is.null(value) || length(value) == 0 || is.na(value[1]) || !valid(value)) current else value
+  }
   recipe$outliers$method <- set(input$outlier_method, recipe$outliers$method)
-  recipe$outliers$z <- set(input$outlier_z, recipe$outliers$z)
+  recipe$outliers$z <- set(input$outlier_z, recipe$outliers$z, function(v) v > 0)
   recipe$outliers$action <- set(input$outlier_action, recipe$outliers$action)
   recipe$impute$quanti <- set(input$impute_quanti, recipe$impute$quanti)
   recipe$impute$quali <- set(input$impute_quali, recipe$impute$quali)
-  if (!is.null(input$rare_pct) && !is.na(input$rare_pct)) {
-    recipe$rare$threshold <- input$rare_pct / 100
-  }
+  rare_pct <- set(input$rare_pct, 100 * recipe$rare$threshold, function(v) v >= 0 && v <= 100)
+  recipe$rare$threshold <- rare_pct / 100
   recipe$scale$method <- set(input$scale_method, recipe$scale$method)
   recipe$dummy$method <- set(input$dummy_method, recipe$dummy$method)
-  recipe$dummy$max_cols <- set(input$dummy_max_cols, recipe$dummy$max_cols)
+  recipe$dummy$max_cols <- set(input$dummy_max_cols, recipe$dummy$max_cols, function(v) v >= 1)
   recipe
 }
 
@@ -78,21 +81,25 @@ outlier_summary <- function(dataset, method = "tukey", z = 3) {
   table
 }
 
-# Points of the outlier plot: every outlier, and at most max_points other values.
-outlier_plot_data <- function(x, bounds, max_points = MAX_PLOT_POINTS, seed = 1) {
+# Points of the outlier plot: every outlier, and at most max_points other values,
+# taken at regular intervals: deterministic, and the global random seed, shared
+# by all sessions of the server, is left untouched.
+outlier_plot_data <- function(x, bounds, max_points = MAX_PLOT_POINTS) {
   x <- x[!is.na(x)]
   flag <- is_outlier(x, bounds)
   inside <- which(!flag)
   sampled <- length(inside) > max_points
   if (sampled) {
-    set.seed(seed)
-    inside <- sample(inside, max_points)
+    inside <- inside[unique(round(seq(1, length(inside), length.out = max_points)))]
   }
   keep <- c(which(flag), inside)
   out <- data.frame(value = x[keep], outlier = flag[keep])
   attr(out, "sampled") <- sampled
   out
 }
+
+# Percentage with one decimal and a decimal comma, for the French interface.
+format_pct <- function(x) formatC(x, format = "f", digits = 1, decimal.mark = ",")
 
 # --- Module ----------------------------------------------------------------------
 
@@ -115,6 +122,8 @@ mod_preprocess_ui <- function(id) {
         numericInput(ns("outlier_z"), "Seuil du z-score", value = 3, min = 1, step = 0.5)
       ),
       selectInput(ns("outlier_action"), "Outliers : traitement", OUTLIER_ACTIONS),
+      helpText("« Signaler » ne modifie pas les données : les outliers se lisent dans le",
+               "tableau de l'onglet Valeurs aberrantes."),
       selectInput(ns("impute_quanti"), "Imputation des variables quanti", IMPUTE_QUANTI),
       selectInput(ns("impute_quali"), "Imputation des variables quali", IMPUTE_QUALI),
       numericInput(ns("rare_pct"), "Modalités rares : seuil (% des valeurs), 0 pour aucun",
@@ -182,7 +191,7 @@ mod_preprocess_server <- function(id, dataset) {
 
     observeEvent(quanti_cols(), {
       updateSelectInput(session, "outlier_var", choices = quanti_cols(),
-                        selected = intersect(input$outlier_var, quanti_cols())[1])
+                        selected = head(c(intersect(input$outlier_var, quanti_cols()), quanti_cols()), 1))
     })
 
     outliers <- reactive({
@@ -195,8 +204,8 @@ mod_preprocess_server <- function(id, dataset) {
       validate(need(nrow(table) > 0, "Aucune variable quanti."))
       n <- nrow(dataset_clean()$data)
       flagged <- attr(table, "rows_flagged")
-      sprintf("%d lignes sur %d (%.1f %%) ont au moins un outlier : « Supprimer » les retirerait si tout le jeu servait d'entraînement.",
-              flagged, n, 100 * flagged / max(n, 1))
+      sprintf("%d lignes sur %d (%s %%) ont au moins un outlier : « Supprimer » les retirerait si tout le jeu servait d'entraînement.",
+              flagged, n, format_pct(100 * flagged / max(n, 1)))
     })
 
     output$outlier_table <- DT::renderDT({
@@ -207,7 +216,7 @@ mod_preprocess_server <- function(id, dataset) {
                       colnames = c("Variable", "Borne basse", "Borne haute", "Outliers",
                                    "% des valeurs"),
                       options = list(pageLength = 10, scrollX = TRUE)),
-        c("lower", "upper", "pct_outliers"), 2
+        c("lower", "upper", "pct_outliers"), 2, mark = " ", dec.mark = ","
       )
     })
 
@@ -226,7 +235,9 @@ mod_preprocess_server <- function(id, dataset) {
       bounds <- outlier_bounds(dataset_clean()$data[[input$outlier_var]],
                                r$outliers$method, r$outliers$z)
       ggplot2::ggplot(points, ggplot2::aes(x = 0, y = value, colour = outlier)) +
-        ggplot2::geom_jitter(width = 0.3, height = 0, alpha = 0.5, size = 1.2) +
+        # A fixed seed makes ggplot2 restore the global random state after jittering.
+        ggplot2::geom_point(position = ggplot2::position_jitter(width = 0.3, height = 0, seed = 1),
+                            alpha = 0.5, size = 1.2) +
         ggplot2::geom_hline(yintercept = bounds[is.finite(bounds)], linetype = "dashed") +
         ggplot2::scale_colour_manual(values = c(`FALSE` = "grey55", `TRUE` = "firebrick"),
                                      labels = c(`FALSE` = "non", `TRUE` = "oui"),
@@ -238,7 +249,7 @@ mod_preprocess_server <- function(id, dataset) {
 
     output$outlier_plot_note <- renderText({
       if (isTRUE(attr(plot_data(), "sampled"))) {
-        sprintf("Tous les outliers sont affichés, avec %d autres valeurs tirées au hasard.",
+        sprintf("Tous les outliers sont affichés, avec %d autres valeurs prises à intervalles réguliers.",
                 MAX_PLOT_POINTS)
       } else {
         ""
@@ -278,7 +289,9 @@ mod_preprocess_server <- function(id, dataset) {
       numeric_cols <- names(data)[vapply(data, is.numeric, logical(1))]
       table <- DT::datatable(data, rownames = FALSE, selection = "none",
                              options = list(pageLength = 10, scrollX = TRUE))
-      if (length(numeric_cols) > 0) table <- DT::formatRound(table, numeric_cols, 4)
+      if (length(numeric_cols) > 0) {
+        table <- DT::formatRound(table, numeric_cols, 4, mark = "", dec.mark = ",")
+      }
       table
     })
 
@@ -286,7 +299,10 @@ mod_preprocess_server <- function(id, dataset) {
       filename = function() "donnees_pretraitees.csv",
       content = function(file) {
         fitted <- preview_fit()
-        req(!inherits(fitted, "error"))
+        if (inherits(fitted, "error")) {
+          showNotification(paste("Export impossible :", conditionMessage(fitted)), type = "error")
+          req(FALSE)
+        }
         utils::write.csv(fitted$train, file, row.names = FALSE, fileEncoding = "UTF-8")
       }
     )

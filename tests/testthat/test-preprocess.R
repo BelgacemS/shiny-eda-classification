@@ -47,6 +47,11 @@ test_that("the outlier plot keeps every outlier when it samples the other points
   expect_true(attr(points, "sampled"))
   expect_equal(nrow(points), 12L)
   expect_setequal(points$value[points$outlier], c(1000, 2000))
+  # Deterministic, and the global random state is left untouched.
+  set.seed(42)
+  before <- .Random.seed
+  expect_identical(outlier_plot_data(x, outlier_bounds(x), max_points = 10), points)
+  expect_identical(.Random.seed, before)
 })
 
 # --- Module ----------------------------------------------------------------------
@@ -78,8 +83,13 @@ test_that("recipe() reflects the settings", {
     expect_equal(r$rare$threshold, 0.05)
     expect_equal(r$scale$method, "minmax")
     expect_equal(r$dummy, list(method = "k_minus_1", max_cols = 20))
-    # An emptied numeric input keeps the default instead of breaking the recipe.
-    session$setInputs(outlier_z = NA)
+    # An emptied or out-of-range numeric input keeps the default.
+    session$setInputs(outlier_z = NA, rare_pct = 150, dummy_max_cols = 0)
+    r <- session$returned$recipe()
+    expect_equal(r$outliers$z, 3)
+    expect_equal(r$rare$threshold, 0)
+    expect_equal(r$dummy$max_cols, 50)
+    session$setInputs(outlier_z = -1)
     expect_equal(session$returned$recipe()$outliers$z, 3)
   })
 })
