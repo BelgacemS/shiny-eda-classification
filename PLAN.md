@@ -268,7 +268,7 @@ Couvre : le chargement et le prétraitement (A.1).
     - même graine, même résultat.
   - Hors périmètre : branchement dans l'interface (E11b).
 
-- [ ] **Redéploiement J3** : après fusion de E5, E6a, E6b et E7, sur l'URL publique, `students.csv` chargé, retypé, prétraité et exporté ; mémoire relevée après chargement de BAAC.
+- [x] **Redéploiement J3** : après fusion de E5, E6a, E6b et E7, sur l'URL publique, `students.csv` chargé, retypé, prétraité et exporté ; mémoire relevée après chargement de BAAC.
 
 ### Jalon 4 : Exploration complète, deux modèles et métriques
 
