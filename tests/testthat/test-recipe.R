@@ -83,6 +83,51 @@ test_that("an unknown test level goes to Autre when Autre has training rows, els
   expect_equal(unlist(apply_recipe(dummies, test)[1, ], use.names = FALSE), c(1, 0, 0))
 })
 
+test_that("unseen levels are handled on quali columns outside rare$vars", {
+  train <- data.frame(g = factor(c("a", "a", "b", "b")), h = factor(c("u", "v", "u", "v")))
+  types <- c(g = "quali", h = "quali")
+  fitted <- fit_recipe(recipe_with(rare = list(threshold = 0.3, vars = "g")), train, types)
+  out <- apply_recipe(fitted, data.frame(g = factor("a"), h = factor(c("NEW"))))
+  # u and v tie at 2 rows: the mode is u, the first level.
+  expect_equal(as.character(out$h), "u")
+  expect_equal(levels(out$h), c("u", "v"))
+})
+
+test_that("a level already named Autre receives the unseen levels", {
+  train <- data.frame(g = factor(c("a", "a", "Autre", "b")))
+  fitted <- fit_recipe(default_recipe(), train, c(g = "quali"))
+  expect_equal(as.character(apply_recipe(fitted, data.frame(g = "z"))$g), "Autre")
+})
+
+test_that("an empty training level, as after a split, is not kept", {
+  train <- data.frame(g = factor(c("a", "b", "a"), levels = c("a", "b", "c")))
+  fitted <- fit_recipe(recipe_with(dummy = list(method = "one_hot")), train, c(g = "quali"))
+  expect_equal(names(fitted$train), c("g_a", "g_b"))
+  expect_equal(unlist(apply_recipe(fitted, data.frame(g = "c")), use.names = FALSE), c(1, 0))
+})
+
+test_that("edge cases give messages or errors instead of crashes or NaN", {
+  # Only column constant: empty output with a message.
+  fitted <- fit_recipe(recipe_with(scale = list(method = "standard")),
+                       data.frame(k = c(2, 2)), c(k = "quanti"))
+  expect_equal(dim(fitted$train), c(2L, 0L))
+  expect_equal(dim(apply_recipe(fitted, data.frame(k = 5))), c(1L, 0L))
+  # Infinite values: no outlier removed, column dropped instead of NaN.
+  train <- data.frame(x = c(1, 2, Inf, 4), y = c(1, 2, 3, 4))
+  inf <- fit_recipe(recipe_with(outliers = list(method = "zscore", action = "remove"),
+                                scale = list(method = "standard")),
+                    train, c(x = "quanti", y = "quanti"))
+  expect_equal(inf$kept_rows, 1:4)
+  expect_equal(names(inf$train), "y")
+  expect_match(inf$messages, "non finie.*x")
+  # A quali variable left without dummy column is reported.
+  one <- fit_recipe(recipe_with(dummy = list(method = "k_minus_1")),
+                    data.frame(g = factor(c("a", "a"))), c(g = "quali"))
+  expect_match(one$messages, "sans colonne.*g")
+  expect_error(fit_recipe(recipe_with(outliers = list(action = "capp")), train,
+                          c(x = "quanti", y = "quanti")), "inconnue")
+})
+
 test_that("a setting on a column absent from train is ignored", {
   train <- data.frame(x = c(1, 2, 3), g = factor(c("a", "b", "a")))
   types <- c(x = "quanti", g = "quali", absent = "quanti")
