@@ -20,3 +20,10 @@ cov_1n <- function(x, y) {
   }
   mean_1n((x - mean_1n(x)) * (y - mean_1n(y)))
 }
+
+# Constancy is read on the values, never on a spread: the 1/n variance of a
+# constant decimal column such as rep(0.1, 50) is about 1e-33 after rounding,
+# not 0, and would pass a "> 0" test. x: values without NA.
+is_constant <- function(x) {
+  length(x) == 0 || max(x) == min(x)
+}

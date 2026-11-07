@@ -1,12 +1,6 @@
 # Bivariate statistics and association indices of the course, computed by hand
 # on the complete cases of the pair, with the 1/n convention.
 
-# Constancy is read on the data: the variance of a constant decimal column
-# (rep(0.1, 50)) is about 1e-33 after rounding, not 0, and would pass a "> 0" test.
-is_constant <- function(x) {
-  length(x) == 0 || max(x) == min(x)
-}
-
 # Covariance, linear correlation and least squares line y = a x + b:
 # a = s_XY / s_X^2, b = mean(y) - a mean(x). r and the line are NA when x or y
 # is constant.

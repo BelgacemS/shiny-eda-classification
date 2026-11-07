@@ -151,6 +151,21 @@ test_that("a constant column is dropped with a message, without NaN", {
   }
 })
 
+test_that("a constant decimal column is dropped by scaling, as an integer one", {
+  # sd_1n(rep(0.1, 50)) is about 4e-17, not 0: without a test on the values the
+  # column stayed, the training set became constant at 1 and a test value of 0.2
+  # gave 2.4e15.
+  for (k in c(0.1, 1 / 3, 2.3)) {
+    train <- data.frame(k = rep(k, 50), x = seq_len(50))
+    for (method in c("standard", "minmax")) {
+      fitted <- fit_recipe(recipe_with(scale = list(method = method)), train,
+                           c(k = "quanti", x = "quanti"))
+      expect_equal(names(fitted$train), "x")
+      expect_match(fitted$messages, "k")
+    }
+  }
+})
+
 test_that("removing outliers drops training rows only", {
   train <- data.frame(x = c(1, 2, 3, 4, 100), y = c(10, 11, 12, -500, 13))
   types <- c(x = "quanti", y = "quanti")

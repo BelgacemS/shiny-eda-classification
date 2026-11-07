@@ -253,14 +253,14 @@ fit_scale <- function(fitted, data) {
     step_cols(fitted, data, "quanti", fitted$recipe$scale$vars)
   params <- lapply(data[cols], function(x) {
     x <- observed(x)
-    if (length(x) == 0) return(c(center = NA_real_, scale = 0))
+    if (is_constant(x)) return(c(center = NA_real_, scale = 0))
     switch(method,
       standard = c(center = mean_1n(x), scale = sd_1n(x)),
       minmax = c(center = min(x), scale = max(x) - min(x)),
       stop("normalisation inconnue : ", method, call. = FALSE)
     )
   })
-  # Zero spread, no value, or an infinite spread that would give NaN.
+  # Constant or empty (scale set to 0 above), or an infinite spread that would give NaN.
   constant <- names(params)[vapply(params, function(p) {
     !isTRUE(is.finite(p[["scale"]]) && p[["scale"]] > 0 && is.finite(p[["center"]]))
   }, logical(1))]

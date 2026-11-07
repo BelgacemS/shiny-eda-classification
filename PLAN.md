@@ -299,6 +299,8 @@ Couvre : l'exploration (A.2) et le début de la modélisation (A.3).
     - Sex × Level de `students.csv` : `χ²` égal à `chisq.test(tab, correct = FALSE)$statistic` (≈ 12,82, appel dans `suppressWarnings` car 7 cellules sur 12 ont un effectif théorique inférieur à 5), `Φ² ≈ 0,267`, `T ≈ 0,346`, `C ≈ 0,517`.
   - Hors périmètre : Spearman et carte de chaleur des corrélations (absents du cours, bonus éventuel).
 
+- [x] **Durcissement** (entre E9 et E10a, décidé après les bugs trouvés en relecture de E5 à E9) : audit des motifs fragiles de `R/` (constance testée par une variance `> 0`, comparaisons de décimaux, graines globales) et correction de la normalisation de la recette sur une colonne constante décimale ; tests par propriétés sur données aléatoires piégées (`tests/testthat/test-properties.R`, invariants et références de R de base) ; test de robustesse de l'app entière sur des fichiers piégés (`tests/testthat/test-robustness.R` : chaque sortie des onglets 1 à 3 s'affiche ou s'arrête sur un message prévu) ; vérification dans un navigateur pour toute étape d'interface (`CLAUDE.md`).
+
 - [ ] **E10a. Découpage et métriques à seuil**
   - Dépend de : E2.
   - Objectif : les fonctions de découpage et de métriques, testées, sans interface.
