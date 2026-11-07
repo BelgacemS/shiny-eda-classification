@@ -44,6 +44,28 @@ test_that("the table by class counts ]b_{i-1}, b_i] as hist() does", {
   expect_equal(t$n, c(2, 2))
 })
 
+test_that("a value on a boundary stored inexactly stays in the lower class, as hist()", {
+  # pretty() gives -2.8000000000000003 as a boundary: -2.8 belongs to ]-2.9, -2.8].
+  x <- c(-3, -2.8, -2.7)
+  breaks <- class_breaks(x)
+  expect_equal(freq_table_classes(x, breaks)$n, c(1L, 1L, 1L))
+  set.seed(9)
+  for (i in 1:300) {
+    x <- round(runif(sample(5:60, 1), 0, sample(c(1, 10, 100), 1)), sample(1:2, 1))
+    breaks <- class_breaks(x, sample(CLASS_RULES, 1))
+    expect_identical(freq_table_classes(x, breaks)$n,
+                     as.integer(graphics::hist(x, breaks = breaks, plot = FALSE)$counts))
+  }
+})
+
+test_that("Scott and FD fall back to Sturges without spread, and classes are capped", {
+  expect_equal(class_breaks(5, "scott"), class_breaks(5, "sturges"))
+  expect_equal(class_breaks(c(2, 2, 2), "fd"), class_breaks(c(2, 2, 2), "sturges"))
+  # A tiny IQR and an extreme value: FD would ask for about a million classes.
+  x <- c(seq(0, 0.001, length.out = 1000), 1000)
+  expect_lte(length(class_breaks(x, "fd")) - 1, 2 * MAX_CLASSES)
+})
+
 test_that("the class rules give the number of classes of nclass.* before pretty()", {
   set.seed(4)
   x <- rexp(500)
