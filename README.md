@@ -30,6 +30,12 @@ Rscript -e 'shiny::runApp(launch.browser = TRUE)'
 Rscript -e 'testthat::test_dir("tests/testthat")'
 ```
 
+The property tests draw 150 random data sets per property; a deeper run, about two minutes:
+
+```bash
+PROPERTY_DRAWS=2000 Rscript -e 'testthat::test_file("tests/testthat/test-properties.R")'
+```
+
 ## Deploy
 
 Deployment to shinyapps.io runs from a clean `main` branch. The account must first be registered once per machine with `rsconnect::setAccountInfo()` (token from the shinyapps.io dashboard, never committed).
