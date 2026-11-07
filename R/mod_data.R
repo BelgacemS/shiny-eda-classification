@@ -25,10 +25,11 @@ mod_data_ui <- function(id) {
       checkboxInput(ns("na_empty"), "Cellule vide : valeur manquante", TRUE),
       selectizeInput(ns("na_cols"), "Colonnes concernées par les codes (vide : toutes)",
                      choices = NULL, multiple = TRUE),
-      helpText("Un code est comparé au texte exact de la cellule. Appliqué à toutes",
-               "les colonnes, « 0 » ou « -1 » efface aussi les vraies valeurs :",
-               "choisir alors les colonnes concernées. Ces options ne portent que sur",
-               "les fichiers, et chaque changement relit le fichier."),
+      helpText("Un code est comparé au texte exact de la cellule. « NA » et la cellule",
+               "vide valent pour toutes les colonnes ; les autres codes, pour les",
+               "colonnes choisies. Appliqué partout, « 0 » ou « -1 » efface aussi les",
+               "vraies valeurs. Ces options ne portent que sur les fichiers, et chaque",
+               "changement relit le fichier en gardant les types modifiés à la main."),
       hr(),
       uiOutput(ns("baac_ui"))
     ),
@@ -75,10 +76,27 @@ mod_data_server <- function(id, baac_sample) {
       )
     })
 
-    set_source <- function(data) {
+    # Types set by hand on the current data: kept when an import option re-reads the file.
+    manual_types <- function() {
+      src <- source_data()
+      ds <- dataset()
+      if (is.null(src) || !validate_dataset(ds)) {
+        return(character(0))
+      }
+      ds$var_types[ds$var_types != src$detected[names(ds$var_types)]]
+    }
+
+    # keep: manual types to reapply; one that no longer fits the data is dropped.
+    set_source <- function(data, keep = character(0)) {
       types <- detect_types(data)
       source_data(list(data = data, detected = types))
-      dataset(make_dataset(data, types))
+      ds <- make_dataset(data, types)
+      keep <- keep[names(keep) %in% names(data)]
+      for (type in unique(keep)) {
+        ds <- tryCatch(change_types(data, ds$var_types, names(keep)[keep == type], type)$dataset,
+                       error = function(e) ds)
+      }
+      dataset(ds)
       updateSelectizeInput(session, "type_vars", choices = names(data), selected = character(0))
       possible_id <- attr(types, "possible_id")
       if (length(possible_id) > 0) {
@@ -89,11 +107,12 @@ mod_data_server <- function(id, baac_sample) {
       }
     }
 
-    read_upload <- function() {
+    read_upload <- function(keep_types = FALSE) {
       req(input$file)
+      keep <- if (keep_types) manual_types() else character(0)
       tryCatch({
         data <- do.call(read_table_file, c(list(input$file$datapath), import_settings()))
-        set_source(data)
+        set_source(data, keep)
         updateSelectizeInput(session, "na_cols", choices = names(data),
                              selected = intersect(input$na_cols, names(data)))
       }, error = function(e) {
@@ -112,7 +131,7 @@ mod_data_server <- function(id, baac_sample) {
     })
 
     observeEvent(import_settings(), {
-      if (current_source() == "file") read_upload()
+      if (current_source() == "file") read_upload(keep_types = TRUE)
     }, ignoreInit = TRUE)
 
     output$baac_ui <- renderUI({

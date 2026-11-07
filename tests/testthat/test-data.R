@@ -81,6 +81,14 @@ test_that("codes restricted to some columns leave the others untouched", {
   expect_equal(data$g, c("a", "N/A", "b", "", "a"))
 })
 
+test_that("NA and empty cells stay missing everywhere when codes are restricted", {
+  path <- write_text("x,y,g\n1,2.5,a\n-1,NA,b\n3,4.1,\n-1,2.5,a\n")
+  data <- read_table_file(path, na_codes = c("NA", "", "-1"), na_cols = "x")
+  expect_equal(data$x, c(1L, NA, 3L, NA))
+  expect_equal(data$y, c(2.5, NA, 4.1, 2.5))
+  expect_equal(data$g, c("a", "b", NA, "a"))
+})
+
 test_that("codes match the cell text with surrounding spaces ignored", {
   data <- read_table_file(write_text("x,y\n1, -1\n2,3\n"), na_codes = "-1")
   expect_equal(data$y, c(NA, 3L))
@@ -166,6 +174,22 @@ test_that("changing an import option re-reads the current file", {
   })
 })
 
+test_that("a re-read keeps the types set by hand", {
+  path <- write_text("a,b\n1,x\n2,y\n1,.\n2,x\n")
+  shiny::testServer(mod_data_server, args = list(baac_sample = NULL), {
+    session$setInputs(file = upload_file(path))
+    session$setInputs(type_vars = "a", type_new = "quali", type_apply = 1)
+    session$setInputs(na_codes = ".")
+    ds <- session$returned()
+    expect_equal(unname(ds$var_types), c("quali", "quali"))
+    expect_s3_class(ds$data$a, "factor")
+    expect_equal(ds$data$b, factor(c("x", "y", NA, "x")))
+    # A new file starts again from the detected types.
+    session$setInputs(file = upload_file(write_text("a,b\n1,x\n2,y\n1,y\n")))
+    expect_equal(unname(session$returned()$var_types), c("quanti", "quali"))
+  })
+})
+
 test_that("missing codes declared in the UI reach dataset()", {
   path <- write_text(toy_codes)
   shiny::testServer(mod_data_server, args = list(baac_sample = NULL), {
@@ -198,7 +222,8 @@ test_that("the BAAC button loads the sample, and is disabled without it", {
 load_in_module <- function(path, ...) {
   out <- NULL
   shiny::testServer(mod_data_server, args = list(baac_sample = NULL), {
-    session$setInputs(file = upload_file(path), ...)
+    # The defaults of the UI: testServer leaves the inputs NULL.
+    session$setInputs(file = upload_file(path), na_codes = "NA", na_empty = TRUE, ...)
     out <<- session$returned()
   })
   out
