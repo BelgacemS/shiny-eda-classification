@@ -57,6 +57,12 @@ test_that("a Windows-1252 file is read with the matching encoding", {
   expect_true(all(validUTF8(data$ville)))
 })
 
+test_that("infinite values are read as NA and counted", {
+  data <- read_table_file(write_text("x,y\n1,a\nInf,b\n-inf,a\n4,b\n"))
+  expect_equal(data$x, c(1, NA, NA, 4))
+  expect_equal(attr(data, "n_infinite"), c(x = 2L))
+})
+
 test_that("an empty file is refused with a message", {
   expect_error(read_table_file(write_text("")), "vide")
 })

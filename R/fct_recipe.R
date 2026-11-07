@@ -104,7 +104,8 @@ observed <- function(x) x[!is.na(x)]
 # Bounds outside which a value is an outlier, from the non-missing values of x.
 outlier_bounds <- function(x, method = "tukey", z = 3) {
   x <- observed(x)
-  if (length(x) == 0) {
+  # A constant column has no outlier: with z < 1 its rounded sd would flag every value.
+  if (is_constant(x)) {
     return(c(lower = -Inf, upper = Inf))
   }
   if (method == "tukey") {
@@ -225,9 +226,10 @@ fit_levels <- function(fitted, data) {
     order <- if (is.factor(data[[v]])) levels(data[[v]]) else
       sort(unique(observed(values)), method = "radix")
     counts <- table(factor(values, levels = unique(c(order, observed(values)))))
-    share <- counts / max(sum(counts), 1)
-    kept <- names(counts)[counts > 0 & share >= threshold]
-    has_other <- any(counts > 0 & share < threshold) || RECIPE_OTHER %in% kept
+    # Compared on counts with a tolerance: 9 / 1000 < 0.9 / 100 in floating point.
+    rare <- counts < threshold * sum(counts) - 1e-9
+    kept <- names(counts)[counts > 0 & !rare]
+    has_other <- any(counts > 0 & rare) || RECIPE_OTHER %in% kept
     target <- if (has_other) RECIPE_OTHER else most_frequent(counts)
     list(levels = unique(c(kept, if (has_other) RECIPE_OTHER)), target = target)
   })

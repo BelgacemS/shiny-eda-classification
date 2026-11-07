@@ -166,6 +166,20 @@ test_that("a constant decimal column is dropped by scaling, as an integer one", 
   }
 })
 
+test_that("a constant column has no outlier, whatever z", {
+  for (z in c(0.5, 1, 3)) {
+    b <- outlier_bounds(rep(0.1, 50), "zscore", z)
+    expect_equal(unname(b), c(-Inf, Inf))
+  }
+})
+
+test_that("the rare threshold is compared without floating point error", {
+  # 9 / 1000 equals 0.9 % but 9 / 1000 < 0.9 / 100 in floating point.
+  x <- factor(c(rep("a", 991), rep("b", 9)))
+  fitted <- fit_recipe(recipe_with(rare = list(threshold = 0.9 / 100)), data.frame(x = x), c(x = "quali"))
+  expect_equal(levels(fitted$train$x), c("a", "b"))
+})
+
 test_that("removing outliers drops training rows only", {
   train <- data.frame(x = c(1, 2, 3, 4, 100), y = c(10, 11, 12, -500, 13))
   types <- c(x = "quanti", y = "quanti")
