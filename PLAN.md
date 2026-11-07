@@ -284,7 +284,7 @@ Couvre : l'exploration (A.2) et le début de la modélisation (A.3).
   - Vérification : sur les 48 âges de la slide 01 recopiés dans le test, moyenne 43,625, variance 109,776, écart-type 10,477 (10,588 en n − 1, ce qui distingue les deux conventions).
   - Hors périmètre : bivarié (E9).
 
-- [ ] **E9. Exploration bivariée et indices de liaison**
+- [x] **E9. Exploration bivariée et indices de liaison**
   - Dépend de : E2.
   - Objectif : les visualisations et indices bivariés du cours, codés à la main, et le tableau des liaisons avec une cible.
   - Contenu :
