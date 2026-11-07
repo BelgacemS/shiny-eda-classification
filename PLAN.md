@@ -274,7 +274,7 @@ Couvre : le chargement et le prétraitement (A.1).
 
 Couvre : l'exploration (A.2) et le début de la modélisation (A.3).
 
-- [ ] **E8. Exploration univariée**
+- [x] **E8. Exploration univariée**
   - Dépend de : E2.
   - Objectif : les visualisations et indicateurs univariés du cours, sur n'importe quelle variable.
   - Contenu :
