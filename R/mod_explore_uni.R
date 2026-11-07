@@ -88,9 +88,11 @@ mod_explore_uni_server <- function(id, dataset_clean) {
     outputOptions(output, "var_type", suspendWhenHidden = FALSE)
 
     output$excluded <- renderText({
+      validate(need(length(analysed()) > 0, "Aucune variable quanti ou quali à explorer."))
       n <- length(column()$x)
-      sprintf("%d valeurs analysées, %d manquantes exclues (sur %d lignes).",
-              length(observed()), n - length(observed()), n)
+      n_missing <- n - length(observed())
+      sprintf("%d valeurs analysées, %d %s (sur %d lignes).", length(observed()), n_missing,
+              if (n_missing > 1) "manquantes exclues" else "manquante exclue", n)
     })
 
     quanti_x <- reactive({
@@ -258,7 +260,7 @@ format_number <- function(x, digits) {
 
 # Class bounds without trailing zeros (0,8 rather than 0,8000).
 format_bound <- function(x) {
-  formatC(x, format = "fg", digits = 6, decimal.mark = ",")
+  trimws(formatC(x, format = "fg", digits = 6, decimal.mark = ","))
 }
 
 # Fewest decimals (at most 6) that show every value exactly, for a numeric column
