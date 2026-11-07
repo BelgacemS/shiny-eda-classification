@@ -45,7 +45,7 @@ Free plan limits that apply to this app (checked on 2026-11-06):
 - active hours: 25 for the account (5 applications at most), shinyapps.io pricing page;
 - instance idle timeout: 15 minutes, the default; the change to 5 minutes through `rsconnect::setProperty()` is accepted but has no effect on the free plan.
 
-Memory and active hours of the deployed app (series names from the shinyapps.io metrics guide):
+Memory and active hours of the deployed app (series names from the shinyapps.io metrics guide). `total_rss` is in bytes, for the whole instance, one value per minute; run the first command within the hour after the test. `showUsage()` counts this app only, not the other apps of the account:
 
 ```bash
 Rscript -e 'rsconnect::showMetrics("docker_container_mem", "total_rss", appName = "shiny-eda-classification", from = "1h", interval = "1m")'
