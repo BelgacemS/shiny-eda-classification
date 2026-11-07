@@ -46,8 +46,24 @@ random_n <- function() sample(c(1, 2, 3, 5, 12, 40, 150), 1)
 
 tol <- 1e-8
 
+# Oracle of constancy written independently of is_constant().
+single_value <- function(x) length(unique(x)) == 1
+
+# Class counts written from the definition: ]b_{i-1}, b_i], the first class
+# closed, with the tolerance that hist() documents (1e-7 of the median class
+# width), so that a decimal read on a boundary stays in the lower class.
+reference_class_counts <- function(x, breaks) {
+  fuzz <- 1e-7 * stats::median(diff(breaks))
+  lower <- breaks[-length(breaks)]
+  upper <- breaks[-1]
+  vapply(seq_along(lower), function(i) {
+    above <- if (i == 1) x >= lower[i] - fuzz else x > lower[i] + fuzz
+    as.integer(sum(above & x <= upper[i] + fuzz))
+  }, integer(1))
+}
+
 test_that("univariate statistics keep their invariants on random data", {
-  set.seed(101)
+  withr::local_seed(101)
   for (i in seq_len(N_DRAWS)) {
     x <- random_quanti(random_n())
     obs <- x[!is.na(x)]
@@ -72,7 +88,7 @@ test_that("univariate statistics keep their invariants on random data", {
       breaks <- class_breaks(x, rule)
       classes <- freq_table_classes(x, breaks)
       expect_equal(sum(classes$n), length(obs))
-      expect_equal(classes$n, as.integer(graphics::hist(obs, breaks = breaks, plot = FALSE)$counts))
+      expect_equal(classes$n, reference_class_counts(obs, breaks))
       expect_equal(sum(classes$density * classes$width), 1)
       expect_lte(nrow(classes), 2 * MAX_CLASSES)
     }
@@ -80,7 +96,7 @@ test_that("univariate statistics keep their invariants on random data", {
 })
 
 test_that("bivariate indices stay in their range and match base R", {
-  set.seed(202)
+  withr::local_seed(202)
   for (i in seq_len(N_DRAWS)) {
     n <- random_n()
     x <- random_quanti(n)
@@ -92,7 +108,7 @@ test_that("bivariate indices stay in their range and match base R", {
     keep <- !is.na(x) & !is.na(y)
     if (!any(keep)) {
       expect_null(qq)
-    } else if (is_constant(x[keep]) || is_constant(y[keep])) {
+    } else if (single_value(x[keep]) || single_value(y[keep])) {
       expect_true(is.na(qq$r))
     } else {
       expect_true(abs(qq$r) <= 1 + tol)
@@ -111,7 +127,7 @@ test_that("bivariate indices stay in their range and match base R", {
       expect_null(cr)
     } else {
       expect_equal(cr$s_e2 + cr$s_r2, cr$s_y2, tolerance = 1e-8)
-      if (is_constant(x[keep])) {
+      if (single_value(x[keep])) {
         expect_true(is.na(cr$c))
       } else {
         expect_true(cr$c >= -tol && cr$c <= 1 + tol)
@@ -138,7 +154,7 @@ test_that("bivariate indices stay in their range and match base R", {
 
 random_recipe <- function() {
   list(
-    outliers = list(method = sample(c("tukey", "zscore"), 1), z = sample(c(1, 3), 1),
+    outliers = list(method = sample(c("tukey", "zscore"), 1), z = sample(c(0.5, 1, 3), 1),
                     action = sample(c("none", "flag", "cap", "remove"), 1)),
     impute = list(quanti = sample(c("none", "median", "mean"), 1),
                   quali = sample(c("none", "mode", "missing_level"), 1)),
@@ -150,7 +166,7 @@ random_recipe <- function() {
 }
 
 test_that("the recipe keeps its contract on random data and settings", {
-  set.seed(303)
+  withr::local_seed(303)
   for (i in seq_len(N_DRAWS)) {
     train <- random_dataset(random_n())
     test <- random_dataset(random_n())
@@ -179,6 +195,24 @@ test_that("the recipe keeps its contract on random data and settings", {
       expect_true(all(levels(out_test[[v]]) %in% levels(out_train[[v]])))
       expect_identical(levels(out_test[[v]]), levels(out_train[[v]]))
     }
+    # Nothing is learned on new data: applying the recipe row by row gives the
+    # same result as applying it to the whole test set.
+    rows <- seq_len(min(nrow(test$data), 6))
+    one_by_one <- do.call(rbind, lapply(rows, function(i) apply_recipe(fitted, test$data[i, , drop = FALSE])))
+    expect_equal(as.list(one_by_one), as.list(out_test[rows, , drop = FALSE]))
+    # Without imputation, no observed value becomes NA (an unseen level goes to a
+    # training level, scaling and capping keep observed values).
+    if (recipe$impute$quanti == "none" && recipe$impute$quali == "none") {
+      dummies <- fitted$params$dummy$params
+      for (v in names(test$data)) {
+        observed_in <- !is.na(test$data[[v]])
+        cols <- if (v %in% names(dummies)) dummies[[v]]$names else intersect(v, names(out_test))
+        has_train_levels <- !is.factor(out_train[[v]]) || length(levels(out_train[[v]])) > 0
+        if (length(cols) == 0 || !has_train_levels) next
+        missing_out <- Reduce(`|`, lapply(out_test[cols], is.na))
+        expect_false(any(missing_out & observed_in))
+      }
+    }
     # Standard scaling: mean 0 and sd (1/n) 1 on train for every complete scaled column.
     if (recipe$scale$method == "standard") {
       for (v in names(fitted$params$scale$params)) {
@@ -193,7 +227,7 @@ test_that("the recipe keeps its contract on random data and settings", {
 })
 
 test_that("rebalancing keeps valid and test, and reaches its target, on random targets", {
-  set.seed(404)
+  withr::local_seed(404)
   for (i in seq_len(N_DRAWS)) {
     n <- sample(c(4, 10, 37, 200), 1)
     p <- runif(1, 0.05, 0.5)
@@ -210,12 +244,21 @@ test_that("rebalancing keeps valid and test, and reaches its target, on random t
         w <- out$train$weights
         expect_equal(sum(w[out$train$y == 1]), sum(w[out$train$y == 0]))
       } else {
-        counts <- table(out$train$y)
-        before <- table(y)
-        achieved <- min(counts) / max(counts)
-        # Either the ratio is reached up to rounding, or it was already reached.
-        expect_true(achieved >= ratio - 1 / min(counts) - tol ||
-                      min(before) / max(before) >= ratio)
+        # Exact counts from the definition; on a tie, the first class in sorted
+        # order is the minority.
+        before <- table(as.character(y))
+        minority <- names(before)[order(as.numeric(before))[1]]
+        majority <- setdiff(names(before), minority)
+        n_min <- before[[minority]]
+        n_maj <- before[[majority]]
+        after <- table(as.character(out$train$y))
+        if (method == "under") {
+          expect_equal(after[[minority]], n_min)
+          expect_equal(after[[majority]], min(n_maj, max(1, round(n_min / ratio))))
+        } else {
+          expect_equal(after[[majority]], n_maj)
+          expect_equal(after[[minority]], max(n_min, round(ratio * n_maj)))
+        }
       }
     }
   }

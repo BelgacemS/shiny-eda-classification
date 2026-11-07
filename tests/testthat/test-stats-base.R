@@ -26,3 +26,11 @@ test_that("a constant vector has zero variance and NA propagates", {
 test_that("cov_1n refuses vectors of different lengths", {
   expect_error(cov_1n(1:3, 1:4), "same length")
 })
+
+test_that("is_constant reads constancy on the values", {
+  expect_true(is_constant(rep(0.1, 50)))
+  expect_true(is_constant(1 / 3))
+  expect_true(is_constant(numeric(0)))
+  expect_false(is_constant(c(0.1, 0.1 + 1e-15)))
+  expect_false(is_constant(c(1, 2)))
+})
