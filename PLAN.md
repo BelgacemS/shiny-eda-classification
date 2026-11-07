@@ -257,7 +257,7 @@ Couvre : le chargement et le prétraitement (A.1).
   - Vérification : `testServer` : une colonne retirée disparaît de `dataset_clean()$data` et de `dataset_clean()$var_types`, et la valeur passe `validate_dataset()` ; `recipe()` reflète les réglages ; après fusion de E6a, `students.csv` prétraité et exporté dans l'app.
   - Hors périmètre : calcul des paramètres (E6a).
 
-- [ ] **E7. Fonctions de rééquilibrage**
+- [x] **E7. Fonctions de rééquilibrage**
   - Dépend de : E2.
   - Objectif : pondération, sous-échantillonnage et sur-échantillonnage, qui ne touchent que l'entraînement.
   - Contenu : `class_weights(y)` (poids `n / (K · n_c)`), `undersample()` et `oversample()` avec graine et ratio cible, et `balance_train(split, method)`, qui renvoie le découpage avec seul l'entraînement modifié.
@@ -303,7 +303,7 @@ Couvre : l'exploration (A.2) et le début de la modélisation (A.3).
   - Dépend de : E2.
   - Objectif : les fonctions de découpage et de métriques, testées, sans interface.
   - Contenu :
-    - `split_data()` à trois modes : stratifié, groupé (un groupe n'est jamais de deux côtés, stratification sur « le groupe contient un positif »), par variable ; renvoie entraînement, validation interne (prise dans l'entraînement, même groupement) et test ;
+    - `split_data()` à trois modes : stratifié, groupé (un groupe n'est jamais de deux côtés, stratification sur « le groupe contient un positif »), par variable ; renvoie entraînement, validation interne (prise dans l'entraînement, même groupement) et test, au format `list(train, valid, test)` où chaque partie est `list(x = <variables explicatives>, y = <cible>)`, celui qu'attendent `balance_train()` (E7) et `fit_model()` ;
     - échantillonnage par groupe quand un identifiant de groupe est donné ;
     - `confusion()`, `precision()`, `recall()`, `f1()` à un seuil donné (cas limites : aucun positif prédit, aucun positif réel).
   - Fichiers : `R/fct_split.R`, `R/fct_metrics.R`, `tests/testthat/test-split.R`, `tests/testthat/test-metrics.R`.
