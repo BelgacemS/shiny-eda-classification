@@ -120,13 +120,18 @@ outlier_bounds <- function(x, method = "tukey", z = 3) {
   stop("méthode d'outliers inconnue : ", method, call. = FALSE)
 }
 
+# FALSE when the bounds are NaN (a column with infinite values).
 is_outlier <- function(x, bounds) {
-  !is.na(x) & (x < bounds[["lower"]] | x > bounds[["upper"]])
+  out <- x < bounds[["lower"]] | x > bounds[["upper"]]
+  !is.na(out) & out
 }
 
 # Fitted alone because "remove" changes the training rows; returns list(fitted, data).
 fit_outliers <- function(fitted, train) {
   settings <- fitted$recipe$outliers
+  if (!settings$action %in% c("none", "flag", "cap", "remove")) {
+    stop("action sur les outliers inconnue : ", settings$action, call. = FALSE)
+  }
   cols <- if (settings$action == "none") character(0) else
     step_cols(fitted, train, "quanti", settings$vars)
   bounds <- lapply(train[cols], outlier_bounds, method = settings$method, z = settings$z)
@@ -203,14 +208,18 @@ apply_impute <- function(fitted, data) {
 
 # --- 3. Rare and unknown levels ------------------------------------------------
 
+# Runs on every quali column, so that unseen levels are always handled; the
+# threshold only applies to the columns of rare$vars.
 # Levels kept as they are: training levels with a share of the non-missing values
 # at least equal to the threshold. Every other value (rare in training, or unseen)
-# goes to "Autre" when "Autre" has training rows, else to the most frequent
-# training level, so that no level of the output is empty in training.
+# goes to "Autre" when "Autre" has training rows (grouped rare levels, or a level
+# already named "Autre"), else to the most frequent training level, so that no
+# level of the output is empty in training.
 fit_levels <- function(fitted, data) {
-  threshold <- fitted$recipe$rare$threshold
-  cols <- step_cols(fitted, data, "quali", fitted$recipe$rare$vars)
+  cols <- step_cols(fitted, data, "quali")
+  rare_cols <- step_cols(fitted, data, "quali", fitted$recipe$rare$vars)
   fitted$params$levels <- lapply(stats::setNames(cols, cols), function(v) {
+    threshold <- if (v %in% rare_cols) fitted$recipe$rare$threshold else 0
     values <- as.character(data[[v]])
     # Level order of the factor; sorted in the C locale for a character column.
     order <- if (is.factor(data[[v]])) levels(data[[v]]) else
@@ -218,7 +227,7 @@ fit_levels <- function(fitted, data) {
     counts <- table(factor(values, levels = unique(c(order, observed(values)))))
     share <- counts / max(sum(counts), 1)
     kept <- names(counts)[counts > 0 & share >= threshold]
-    has_other <- any(counts > 0 & share < threshold)
+    has_other <- any(counts > 0 & share < threshold) || RECIPE_OTHER %in% kept
     target <- if (has_other) RECIPE_OTHER else most_frequent(counts)
     list(levels = unique(c(kept, if (has_other) RECIPE_OTHER)), target = target)
   })
@@ -251,10 +260,13 @@ fit_scale <- function(fitted, data) {
       stop("normalisation inconnue : ", method, call. = FALSE)
     )
   })
-  constant <- names(params)[vapply(params, function(p) !(p[["scale"]] > 0), logical(1))]
+  # Zero spread, no value, or an infinite spread that would give NaN.
+  constant <- names(params)[vapply(params, function(p) {
+    !isTRUE(is.finite(p[["scale"]]) && p[["scale"]] > 0 && is.finite(p[["center"]]))
+  }, logical(1))]
   if (length(constant) > 0) {
     fitted$messages <- c(fitted$messages, paste0(
-      "colonne constante dans l'entraînement, retirée : ", paste(constant, collapse = ", ")))
+      "colonne constante ou non finie dans l'entraînement, retirée : ", paste(constant, collapse = ", ")))
   }
   fitted$params$scale <- list(params = params[setdiff(cols, constant)], dropped = constant)
   fitted
@@ -296,6 +308,12 @@ fit_dummy <- function(fitted, data) {
       "plus de ", settings$max_cols, " colonnes après dummification, variable retirée : ",
       paste(too_wide, collapse = ", ")))
   }
+  empty <- names(params)[vapply(params, function(p) length(p$levels) == 0, logical(1))]
+  if (length(empty) > 0) {
+    fitted$messages <- c(fitted$messages, paste0(
+      "une seule modalité ou aucune valeur dans l'entraînement, variable sans colonne : ",
+      paste(empty, collapse = ", ")))
+  }
   fitted$params$dummy <- list(params = params[setdiff(cols, too_wide)], dropped = too_wide)
   fitted
 }
@@ -319,7 +337,7 @@ apply_dummy <- function(fitted, data) {
     }
   }
   out <- data.frame(row.names = seq_len(nrow(data)))
-  out[make.unique(names(values))] <- values
+  if (length(values) > 0) out[make.unique(names(values))] <- values
   rownames(out) <- NULL
   out
 }
@@ -335,5 +353,5 @@ output_types <- function(fitted) {
     }
     if (v %in% names(fitted$var_types)) fitted$var_types[[v]] else "ignore"
   })
-  unlist(types, use.names = FALSE)
+  as.character(unlist(types, use.names = FALSE))
 }
