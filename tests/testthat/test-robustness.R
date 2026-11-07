@@ -35,7 +35,7 @@ tricky_files <- function() {
     writeBin(charToRaw(enc2utf8(text)), path)
     path
   }
-  set.seed(11)
+  withr::local_seed(11)
   n <- 30
   lines <- function(df) paste(c(paste(names(df), collapse = ","),
                                 apply(df, 1, paste, collapse = ",")), collapse = "\n")
@@ -63,7 +63,11 @@ tricky_files <- function() {
       a = sample(c("p", "q"), n, TRUE), b = sample(c("r", "s", "t"), n, TRUE)))),
     duplicate_names = write("duplicate_names.csv", "x,x,y\n1,2,a\n3,4,b\n5,6,a\n7,8,b\n"),
     outliers_only = write("outliers_only.csv", lines(data.frame(
-      x = c(rep(1, n - 1), 1000), y = c(rep(2, n - 2), -500, 2))))
+      x = c(rep(1, n - 1), 1000), y = c(rep(2, n - 2), -500, 2)))),
+    infinite = write("infinite.csv", "x,y,g\n1,2,a\n2,Inf,b\n3,4,a\n-inf,5,b\n5,Infinity,a\n"),
+    # Above the 5 000 points of the scatter and outlier plots: thinning branches.
+    large = write("large.csv", lines(data.frame(
+      x = round(rnorm(6000), 3), y = round(rexp(6000), 3), g = sample(c("a", "b", "c"), 6000, TRUE))))
   )
 }
 
@@ -118,6 +122,14 @@ test_that("every output of tabs 1 to 3 renders or stops with a planned message",
           }
         }
         check(OUTPUTS, "tabs")
+        # A planned stop is not enough for the file and the preview: a failed read
+        # or a failed recipe would otherwise pass as a validate() message.
+        if (is.null(dataset())) {
+          failures <<- c(failures, sprintf("%s / %s: file not loaded", file, setting))
+        }
+        if (output_status(session, "preprocess-preview_info") != "ok") {
+          failures <<- c(failures, sprintf("%s / %s: preview recipe failed", file, setting))
+        }
 
         # testServer() on an app evaluates in the server function: `preprocess` is its local.
         clean <- tryCatch(preprocess$dataset_clean()$var_types, error = function(e) NULL)
