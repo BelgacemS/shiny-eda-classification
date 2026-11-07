@@ -218,7 +218,7 @@ Couvre : les données de l'étude de cas (A.4), ou la bascule sur le plan B.
 
 Couvre : le chargement et le prétraitement (A.1).
 
-- [ ] **E5. Onglet Données complet**
+- [x] **E5. Onglet Données complet**
   - Dépend de : E2 ; le bouton BAAC est branché après la fusion de E4.
   - Objectif : importer un fichier tabulaire quelconque et corriger ses types.
   - Contenu :
