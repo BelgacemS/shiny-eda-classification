@@ -71,6 +71,32 @@ test_that("chi2 indices on a 2 x 2 table computed by hand", {
   expect_equal(as.vector(prof[2, ]), c(0.75, 0.25))
 })
 
+test_that("a constant decimal column is detected as constant", {
+  # var_1n(rep(0.1, 50)) is about 1e-33 after rounding, not 0.
+  g <- rep(c("a", "b"), 25)
+  set.seed(7)
+  x <- rnorm(50)
+  for (k in c(0.1, 0.2, 1 / 3, 0.7, 2.3)) {
+    expect_true(is.na(correlation_ratio(rep(k, 50), g)$c))
+    res <- quanti_quanti(rep(k, 50), x)
+    expect_true(is.na(res$r))
+    expect_true(is.na(res$slope))
+    expect_true(is.na(quanti_quanti(x, rep(k, 50))$r))
+  }
+  ds <- make_dataset(data.frame(k = rep(0.1, 50), g = g), c(k = "quanti", g = "quali"))
+  expect_true(is.na(association_table(ds, "g")$value))
+})
+
+test_that("the association table keeps a fixed order of indices", {
+  ds <- make_dataset(
+    data.frame(t = c(1, 2, 3, 4, 5, 6), a = c(2, 1, 4, 3, 6, 5),
+               g = c("u", "v", "u", "v", "u", "v"), h = c("p", "p", "q", "q", "r", "r")),
+    c(t = "quanti", a = "quanti", g = "quali", h = "quali")
+  )
+  expect_equal(association_table(ds, "t")$index,
+               c("r de Pearson", "Rapport de corrélation c", "Rapport de corrélation c"))
+})
+
 test_that("constant or empty pairs give NA or NULL without error", {
   res <- quanti_quanti(c(1, 1, 1), c(1, 2, 3))
   expect_true(is.na(res$r))
