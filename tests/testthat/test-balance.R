@@ -46,6 +46,7 @@ test_that("the class ratio is reached after resampling", {
   expect_equal(class_ratio(over$train$y), 0.5)
   # x and y stay aligned: in the toy set, a positive row has a <= 10.
   expect_true(all((over$train$x$a <= 10) == (over$train$y == 1)))
+  expect_true(all((under$train$x$a <= 10) == (under$train$y == 1)))
   expect_equal(nrow(under$train$x), length(under$train$y))
   # Every minority row is kept, and oversampling keeps every original row.
   expect_true(all(1:10 %in% under$train$x$a))
@@ -87,4 +88,17 @@ test_that("invalid inputs are refused with a message", {
   expect_error(undersample(c("a", "b", "c")), "deux classes")
   expect_error(class_weights(c(1, NA)), "manquante")
   expect_error(balance_train(toy_split(), "smote"), "inconnue")
+})
+
+test_that("with_seed restores a missing seed and survives an error", {
+  env <- globalenv()
+  old <- if (exists(".Random.seed", envir = env)) get(".Random.seed", envir = env)
+  on.exit(if (!is.null(old)) assign(".Random.seed", old, envir = env))
+  if (exists(".Random.seed", envir = env)) rm(".Random.seed", envir = env)
+  with_seed(1, runif(1))
+  expect_false(exists(".Random.seed", envir = env))
+  set.seed(5)
+  before <- .Random.seed
+  expect_error(with_seed(1, stop("boom")), "boom")
+  expect_identical(.Random.seed, before)
 })

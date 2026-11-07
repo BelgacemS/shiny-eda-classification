@@ -303,7 +303,7 @@ Couvre : l'exploration (A.2) et le début de la modélisation (A.3).
   - Dépend de : E2.
   - Objectif : les fonctions de découpage et de métriques, testées, sans interface.
   - Contenu :
-    - `split_data()` à trois modes : stratifié, groupé (un groupe n'est jamais de deux côtés, stratification sur « le groupe contient un positif »), par variable ; renvoie entraînement, validation interne (prise dans l'entraînement, même groupement) et test, au format `list(train, valid, test)` où chaque partie est `list(x = <variables explicatives>, y = <cible>)`, celui qu'attendent `balance_train()` (E7) et `fit_model()` ;
+    - `split_data()` à trois modes : stratifié, groupé (un groupe n'est jamais de deux côtés, stratification sur « le groupe contient un positif »), par variable ; renvoie entraînement, validation interne (prise dans l'entraînement, même groupement) et test, au format `list(train, valid, test)` où chaque partie est `list(x = <variables explicatives>, y = <cible>)`, celui qu'attendent `balance_train()` (E7) et `fit_model()` ; le rééquilibrage reçoit ce découpage après la recette (`x` transformé, `y` de l'entraînement restreint à `kept_rows`), et le découpage brut est gardé pour `univariate_auc` (E11a) et `perm_importance` (E11b) ;
     - échantillonnage par groupe quand un identifiant de groupe est donné ;
     - `confusion()`, `precision()`, `recall()`, `f1()` à un seuil donné (cas limites : aucun positif prédit, aucun positif réel).
   - Fichiers : `R/fct_split.R`, `R/fct_metrics.R`, `tests/testthat/test-split.R`, `tests/testthat/test-metrics.R`.

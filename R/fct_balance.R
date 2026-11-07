@@ -3,8 +3,10 @@
 # A split is list(train, valid, test); each part is list(x = <data.frame of
 # predictors>, y = <target>), the target having no NA (rows without target are
 # removed before the split). balance_train() returns the same split where only
-# the training part changes; it gets a `weights` element (NULL unless the
-# method is "weights").
+# the training part changes; with the "weights" method it gets a `weights`
+# element (`train$weights` is NULL otherwise).
+# It is applied after the recipe: x is the transformed training set and y the
+# target aligned with fitted$kept_rows.
 #
 # Resampling ratio: n_minority / n_majority in the training set after
 # resampling, in (0, 1]; 1 gives two classes of the same size.
@@ -48,7 +50,7 @@ oversample <- function(y, ratio = 1, seed = 1) {
 }
 
 balance_train <- function(split, method = "none", ratio = 1, seed = 1) {
-  if (!method %in% BALANCE_METHODS) {
+  if (length(method) != 1 || !method %in% BALANCE_METHODS) {
     stop("méthode de rééquilibrage inconnue : ", method, call. = FALSE)
   }
   train <- split$train
