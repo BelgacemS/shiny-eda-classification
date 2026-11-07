@@ -71,15 +71,20 @@ guess_separator <- function(lines) {
   if (max(counts) == 0) "," else SEPARATORS[which.max(counts)]
 }
 
-# data: character columns as read. Columns of na_cols absent from data are ignored.
+# Codes that always apply to every column: they are the read.csv() defaults, and
+# restricting "-1" to one column must not turn "NA" into text elsewhere.
+UNIVERSAL_NA_CODES <- c("NA", "")
+
+# data: character columns as read. na_cols restricts the other codes; its columns
+# absent from data are ignored.
 apply_missing_codes <- function(data, na_codes, na_cols = NULL) {
-  na_codes <- trimws(na_codes)
-  if (length(na_codes) == 0) {
-    return(data)
-  }
+  na_codes <- unique(trimws(na_codes))
+  universal <- intersect(na_codes, UNIVERSAL_NA_CODES)
   cols <- if (length(na_cols) == 0) names(data) else intersect(na_cols, names(data))
-  data[cols] <- lapply(data[cols], function(x) {
-    x[trimws(x) %in% na_codes] <- NA
+  data[] <- lapply(names(data), function(name) {
+    x <- data[[name]]
+    codes <- if (name %in% cols) na_codes else universal
+    x[trimws(x) %in% codes] <- NA
     x
   })
   data
