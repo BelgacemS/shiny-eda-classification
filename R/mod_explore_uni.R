@@ -268,7 +268,7 @@ format_bound <- function(x) {
 decimals_needed <- function(x) {
   x <- x[is.finite(x)]
   for (d in 0:6) {
-    if (all(abs(round(x, d) - x) < 1e-9)) return(d)
+    if (all(abs(round(x, d) - x) <= 1e-9 * pmax(abs(x), 1e-300))) return(d)
   }
   6
 }

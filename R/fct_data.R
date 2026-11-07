@@ -38,6 +38,11 @@ read_table_file <- function(path, sep = "auto", header = TRUE, encoding = "UTF-8
   data <- apply_missing_codes(data, na_codes, na_cols)
   data[] <- lapply(data, utils::type.convert, as.is = TRUE, dec = dec,
                    na.strings = character(0))
+  # "Inf", "-inf" or "Infinity" are read as infinite numbers, which break the
+  # statistics and the plots: they become NA, counted in attr "n_infinite".
+  n_inf <- vapply(data, function(x) if (is.numeric(x)) sum(is.infinite(x)) else 0L, integer(1))
+  data[n_inf > 0] <- lapply(data[n_inf > 0], function(x) replace(x, is.infinite(x), NA))
+  attr(data, "n_infinite") <- n_inf[n_inf > 0]
   data
 }
 

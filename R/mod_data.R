@@ -98,6 +98,14 @@ mod_data_server <- function(id, baac_sample) {
       }
       dataset(ds)
       updateSelectizeInput(session, "type_vars", choices = names(data), selected = character(0))
+      n_inf <- attr(data, "n_infinite")
+      if (length(n_inf) > 0) {
+        showNotification(
+          paste("Valeurs infinies remplacées par NA :",
+                paste0(names(n_inf), " (", n_inf, ")", collapse = ", ")),
+          type = "warning"
+        )
+      }
       possible_id <- attr(types, "possible_id")
       if (length(possible_id) > 0) {
         showNotification(

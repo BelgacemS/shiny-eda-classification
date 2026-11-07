@@ -45,7 +45,7 @@ build_recipe <- function(input) {
     if (is.null(value) || length(value) == 0 || is.na(value[1]) || !valid(value)) current else value
   }
   recipe$outliers$method <- set(input$outlier_method, recipe$outliers$method)
-  recipe$outliers$z <- set(input$outlier_z, recipe$outliers$z, function(v) v > 0)
+  recipe$outliers$z <- set(input$outlier_z, recipe$outliers$z, function(v) v >= 1)
   recipe$outliers$action <- set(input$outlier_action, recipe$outliers$action)
   recipe$impute$quanti <- set(input$impute_quanti, recipe$impute$quanti)
   recipe$impute$quali <- set(input$impute_quali, recipe$impute$quali)
