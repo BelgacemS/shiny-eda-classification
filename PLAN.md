@@ -249,7 +249,7 @@ Couvre : le chargement et le prétraitement (A.1).
     - sans suppression d'outliers, `apply_recipe` sur l'entraînement redonne exactement la sortie de l'ajustement.
   - Hors périmètre : interface (E6b), rééquilibrage (E7), découpage (E10a).
 
-- [ ] **E6b. Onglet Prétraitement**
+- [x] **E6b. Onglet Prétraitement**
   - Dépend de : E2 (en parallèle de E6a ; la vérification dans l'app attend E6a).
   - Objectif : l'interface qui règle la recette, en parallèle de E6a.
   - Contenu : réglages des 5 étapes, opérations non apprises de `data_clean` (colonnes retirées, suppression des lignes incomplètes), affichage des outliers par variable, aperçu et export CSV (`downloadHandler`).
