@@ -1,6 +1,12 @@
 # Bivariate statistics and association indices of the course, computed by hand
 # on the complete cases of the pair, with the 1/n convention.
 
+# Constancy is read on the data: the variance of a constant decimal column
+# (rep(0.1, 50)) is about 1e-33 after rounding, not 0, and would pass a "> 0" test.
+is_constant <- function(x) {
+  length(x) == 0 || max(x) == min(x)
+}
+
 # Covariance, linear correlation and least squares line y = a x + b:
 # a = s_XY / s_X^2, b = mean(y) - a mean(x). r and the line are NA when x or y
 # is constant.
@@ -14,11 +20,11 @@ quanti_quanti <- function(x, y) {
   s_xy <- cov_1n(x, y)
   s_x <- sd_1n(x)
   s_y <- sd_1n(y)
-  a <- if (s_x > 0) s_xy / s_x^2 else NA_real_
+  a <- if (!is_constant(x)) s_xy / s_x^2 else NA_real_
   list(
     n = length(x),
     covariance = s_xy,
-    r = if (s_x > 0 && s_y > 0) s_xy / (s_x * s_y) else NA_real_,
+    r = if (!is_constant(x) && !is_constant(y)) s_xy / (s_x * s_y) else NA_real_,
     slope = a,
     intercept = mean_1n(y) - a * mean_1n(x)
   )
@@ -49,7 +55,7 @@ correlation_ratio <- function(y, g) {
     s_e2 = s_e2,
     s_r2 = s_r2,
     s_y2 = s_y2,
-    c = if (s_y2 > 0) sqrt(s_e2 / s_y2) else NA_real_
+    c = if (!is_constant(y)) sqrt(s_e2 / s_y2) else NA_real_
   )
 }
 
@@ -104,8 +110,11 @@ association <- function(x, x_type, target, target_type) {
   list(index = "Rapport de corrélation c", value = res$c %||% NA_real_, n = res$n %||% 0L)
 }
 
+ASSOCIATION_INDICES <- c("r de Pearson", "Rapport de corrélation c", "C de Cramér")
+
 # One row per quanti or quali variable other than the target, ordered by index
-# then by decreasing absolute value. The indices are not on the same scale.
+# (fixed order, independent of the locale) then by decreasing absolute value.
+# The indices are not on the same scale.
 association_table <- function(dataset, target) {
   types <- dataset$var_types
   vars <- setdiff(names(types)[types %in% c("quanti", "quali")], target)
@@ -116,7 +125,8 @@ association_table <- function(dataset, target) {
   table <- do.call(rbind, c(list(data.frame(variable = character(0), type = character(0),
                                             index = character(0), value = numeric(0),
                                             n = integer(0))), rows))
-  table <- table[order(table$index, -abs(table$value), na.last = TRUE), , drop = FALSE]
+  index_rank <- match(table$index, ASSOCIATION_INDICES)
+  table <- table[order(index_rank, -abs(table$value), na.last = TRUE), , drop = FALSE]
   rownames(table) <- NULL
   table
 }

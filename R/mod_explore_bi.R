@@ -170,19 +170,20 @@ mod_explore_bi_server <- function(id, dataset_clean) {
       plot
     })
 
-    sample_note <- reactive({
-      if (thinned()$sampled) {
-        sprintf("Affichage de %d points pris à intervalles réguliers sur %d ; indices et droite calculés sur tous les cas complets.",
-                length(thinned()$x), length(qq()$x))
-      } else {
-        ""
-      }
+    output$scatter_note <- renderText({
+      if (!thinned()$sampled) return("")
+      sprintf("Affichage de %d points pris à intervalles réguliers sur %d ; indices et droite calculés sur tous les cas complets.",
+              length(thinned()$x), length(qq()$x))
     })
-    output$scatter_note <- renderText(sample_note())
-    output$scatter_hist_note <- renderText(sample_note())
+    output$scatter_hist_note <- renderText({
+      if (!thinned()$sampled) return("")
+      sprintf("Nuage, histogrammes et droite de ce graphique calculés sur %d points pris à intervalles réguliers parmi %d.",
+              length(thinned()$x), length(qq()$x))
+    })
 
     output$backback <- renderPlot({
       p <- qq()
+      validate(need(!is_constant(c(p$x, p$y)), "Les deux variables ont la même valeur constante."))
       Hmisc::histbackback(p$x, p$y, xlab = c(p$x_name, p$y_name),
                           main = paste(p$x_name, "et", p$y_name), las = 2)
     })
@@ -190,6 +191,9 @@ mod_explore_bi_server <- function(id, dataset_clean) {
     output$scatter_hist <- renderPlot({
       p <- qq()
       t <- thinned()
+      # scatter.with.hist() fits a line with lm(): it needs two cases and no constant variable.
+      validate(need(length(t$x) > 1 && !is_constant(t$x) && !is_constant(t$y),
+                    "Graphique impossible : il faut au moins deux cas et deux variables non constantes."))
       # scatter.with.hist() labels its axes with the names of its arguments.
       env <- list2env(stats::setNames(list(t$x, t$y), c(p$x_name, p$y_name)))
       eval(as.call(list(UsingR::scatter.with.hist, as.name(p$x_name), as.name(p$y_name))),
