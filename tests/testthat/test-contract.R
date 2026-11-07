@@ -69,7 +69,7 @@ test_that("mod_preprocess_server passes the dataset through", {
   })
 })
 
-test_that("fit_recipe and apply_recipe are identities with their final signatures", {
+test_that("the default recipe leaves the data unchanged", {
   ds <- toy_dataset()
   fitted <- fit_recipe(default_recipe(), ds$data, ds$var_types)
   expect_s3_class(fitted, "fitted_recipe")

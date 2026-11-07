@@ -233,7 +233,7 @@ Couvre : le chargement et le prétraitement (A.1).
     - mémoire de la session après chargement de BAAC relevée.
   - Hors périmètre : regroupement des modalités rares (appris, donc dans E6a).
 
-- [ ] **E6a. Fonctions de la recette**
+- [x] **E6a. Fonctions de la recette**
   - Dépend de : E2.
   - Objectif : implémenter `fit_recipe()` et `apply_recipe()` selon le contrat, sans interface.
   - Contenu : les 5 étapes du contrat, avec les cas limites (colonne constante, modalité inconnue, plafond de colonnes).
