@@ -138,7 +138,7 @@ Couvre : le contrat entre onglets et un premier déploiement (A.5).
     - `README.md` minimal : lancer, tester, déployer ;
     - `tests/testthat/setup.R`, qui charge les fonctions de `R/`, et un test de fumée (l'app se construit sans erreur) ;
     - travail sur la branche `e1-skeleton` et demande de fusion, comme pour toutes les étapes ; accès en écriture au dépôt pour l'autre membre ; après la fusion, `main` protégée sur GitHub (modifiable seulement par demande de fusion) ;
-    - premier déploiement par `deploy.R` ; relever les limites réelles de l'offre gratuite (RAM, heures actives, taille du bundle) dans le README ; le délai d'inactivité reste à 15 min, non modifiable sur l'offre gratuite, et chaque réveil de l'app consomme donc au moins 15 min d'heures actives.
+    - premier déploiement par `deploy.R` ; relever les limites réelles de l'offre gratuite (RAM, heures actives, taille du bundle) dans le README ; le délai d'inactivité est réglé à 5 min ; relu à 15 min en E1 et cru alors sans effet sur l'offre gratuite, il est bien appliqué au redéploiement J4 (5 min dans `rsconnect::showProperties()`, instance arrêtée 5 à 6 min après la dernière session), et chaque réveil de l'app consomme donc environ 5 min d'heures actives.
   - Fichiers : `app.R`, `renv.lock`, `.Rprofile`, `renv/`, `.gitignore`, `.gitattributes`, `deploy.R`, `README.md`, `CLAUDE.md`, `PLAN.md`, `data/.gitkeep`, `tests/testthat/setup.R`, `tests/testthat/test-smoke.R`.
   - Vérification :
     - `Rscript -e 'shiny::runApp()'` affiche les 5 onglets ;
