@@ -1,0 +1,195 @@
+simulated <- function(n = 400, seed = 1) {
+  withr::local_seed(seed)
+  x <- rnorm(n)
+  g <- factor(sample(c("a", "b", "c"), n, replace = TRUE))
+  y <- rbinom(n, 1, stats::plogis(1.5 * x + (g == "b")))
+  list(x = data.frame(x = x, g = g), y = y)
+}
+
+test_that("probabilities are in [0, 1], one per test row, for both models", {
+  train <- simulated(seed = 1)
+  test <- simulated(n = 137, seed = 2)
+  for (type in c("glm", "ranger")) {
+    model <- fit_model(type, train$x, train$y)
+    prob <- predict_proba(model, test$x)
+    expect_length(prob, 137L)
+    expect_true(all(prob >= 0 & prob <= 1))
+    expect_false(anyNA(prob))
+  }
+})
+
+test_that("the coefficient of x is positive, and negative with the other level as positive", {
+  d <- simulated(seed = 3)
+  target <- factor(ifelse(d$y == 1, "haut", "bas"))
+  for (positive in c("haut", "bas")) {
+    y <- as.integer(as.character(target) == positive)
+    model <- fit_model("glm", d$x, y)
+    slope <- stats::coef(model$fit)[["x"]]
+    if (positive == "haut") expect_gt(slope, 0) else expect_lt(slope, 0)
+  }
+})
+
+test_that("a constant variable or a one-level factor does not break training", {
+  d <- simulated(seed = 4)
+  x <- cbind(d$x, k = 0.1, one = factor("seul"), empty_level = factor("u", levels = c("u", "v")))
+  for (type in c("glm", "ranger")) {
+    model <- fit_model(type, x, d$y)
+    expect_setequal(model$dropped, c("k", "one", "empty_level"))
+    expect_match(model$messages[1], "retirées")
+    expect_length(predict_proba(model, x), nrow(x))
+  }
+})
+
+test_that("ranger with 'order' separates a nominal factor that 'ignore' cannot split in one cut", {
+  # Levels a, b, c, d (50 rows each); a and c are positive. With "order", levels
+  # are sorted by their share of positives, so one cut separates {a, c} from
+  # {b, d}. With "ignore", the alphabetical order a < b < c < d only allows
+  # a | bcd, ab | cd or abc | d: the best stump misclassifies one level, 25 %.
+  g <- factor(rep(c("a", "b", "c", "d"), each = 50))
+  y <- as.integer(g %in% c("a", "c"))
+  x <- data.frame(g = g)
+  model <- fit_model("ranger", x, y, num.trees = 1, max.depth = 1, seed = 1)
+  predicted <- as.integer(predict_proba(model, x) > 0.5)
+  expect_equal(mean(predicted != y), 0)
+  ignore <- ranger::ranger(x = x, y = factor(y, levels = c(0, 1)), num.trees = 1, max.depth = 1,
+                           seed = 1, probability = TRUE, respect.unordered.factors = "ignore",
+                           num.threads = 1)
+  predicted_ignore <- as.integer(stats::predict(ignore, data = x)$predictions[, "1"] > 0.5)
+  expect_equal(mean(predicted_ignore != y), 0.25)
+})
+
+test_that("the logistic regression takes the most frequent level as reference", {
+  d <- simulated(seed = 5)
+  d$x$g <- factor(rep(c("z", "z", "a", "m"), length.out = nrow(d$x)))
+  model <- fit_model("glm", d$x, d$y)
+  expect_equal(model$levels$g[1], "z")
+  expect_false("gz" %in% names(stats::coef(model$fit)))
+})
+
+test_that("non-integer weights use quasibinomial with the same coefficients", {
+  d <- simulated(seed = 6)
+  w <- observation_weights(d$y)
+  weighted <- fit_model("glm", d$x, d$y, weights = w)
+  expect_equal(weighted$fit$family$family, "quasibinomial")
+  reference <- suppressWarnings(stats::glm(d$y ~ x + g, data = d$x, family = stats::binomial(),
+                                           weights = w))
+  expect_equal(unname(stats::coef(weighted$fit)), unname(stats::coef(reference)))
+  expect_length(weighted$messages, 0)
+  # ranger accepts the same per-row weights.
+  expect_length(predict_proba(fit_model("ranger", d$x, d$y, weights = w), d$x), nrow(d$x))
+})
+
+test_that("missing values after the recipe, other classes and one-class targets are refused", {
+  d <- simulated(seed = 7)
+  with_na <- d$x
+  with_na$x[3] <- NA
+  expect_error(fit_model("glm", with_na, d$y), "imputation")
+  expect_error(fit_model("glm", cbind(d$x, code = "c1"), d$y), "ni numériques")
+  expect_error(fit_model("ranger", d$x, rep(1, nrow(d$x))), "une classe")
+  expect_error(fit_model("svm", d$x, d$y), "inconnu")
+})
+
+test_that("an unseen level at prediction time gives a clear message for the logistic regression", {
+  d <- simulated(seed = 8)
+  model <- fit_model("glm", d$x, d$y)
+  new <- d$x[1:2, ]
+  new$g <- factor(c("a", "zzz"))
+  expect_error(predict_proba(model, new), "modalité inconnue")
+})
+
+test_that("the whole pipeline runs on students.csv with Sex as target", {
+  path <- test_path("fixtures", "course", "students.csv")
+  skip_if_not(file.exists(path), "course CSV not available")
+  data <- read_table_file(path, na_codes = c("NA", ""))
+  ds <- make_dataset(data, detect_types(data))
+  recipe <- utils::modifyList(default_recipe(), list(
+    impute = list(quanti = "median", quali = "mode"), rare = list(threshold = 0.05),
+    scale = list(method = "standard"), dummy = list(method = "one_hot")))
+  settings <- list(target = "Sex", positive = "female",
+                   predictors = c("Height", "Sleep", "Level", "Brothers", "MilesHome"),
+                   sample_size = 1000, group = NULL, mode = "stratified", test_prop = 0.2,
+                   valid_prop = 0.25, models = c("glm", "ranger"), seed = 1)
+  out <- train_pipeline(ds, recipe, settings)
+  expect_equal(sum(out$distribution$n), 48L)
+  expect_equal(names(out$results), c("glm", "ranger"))
+  for (r in out$results) {
+    expect_length(r$prob_valid, out$distribution$n[2])
+    expect_equal(sum(r$confusion), out$distribution$n[2])
+  }
+  # Height separates the sexes: positive female means a negative slope.
+  expect_lt(stats::coef(out$results$glm$model$fit)[["Height"]], 0)
+  expect_match(out$results$glm$messages, "k − 1", all = FALSE)
+})
+
+test_that("the pipeline codes the chosen level as 1 and warns about cut groups", {
+  withr::local_seed(9)
+  n <- 600
+  data <- data.frame(y = factor(sample(c("oui", "non"), n, TRUE)), x = rnorm(n),
+                     year = rep(2019:2024, length.out = n), acc = rep(1:200, each = 3))
+  ds <- make_dataset(data, c(y = "quali", x = "quanti", year = "quanti", acc = "id"))
+  settings <- list(target = "y", positive = "oui", predictors = c("x"), sample_size = n,
+                   group = "acc", mode = "variable", by = "year", test_values = "2024",
+                   test_prop = 0.2, valid_prop = 0.25, models = "glm", seed = 1)
+  out <- train_pipeline(ds, default_recipe(), settings)
+  all_y <- c(out$split$train$y, out$split$valid$y, out$split$test$y)
+  expect_equal(sum(all_y), sum(data$y == "oui"))
+  # Each accident spans three consecutive years, so some cross 2024.
+  expect_match(out$messages, "coupés", all = FALSE)
+})
+
+test_that("the modelling module trains on the button and shows the validation metrics", {
+  withr::local_seed(10)
+  n <- 300
+  data <- data.frame(y = factor(sample(c("non", "oui"), n, TRUE, prob = c(0.7, 0.3))),
+                     x = rnorm(n), g = factor(sample(c("a", "b"), n, TRUE)))
+  ds <- make_dataset(data, c(y = "quali", x = "quanti", g = "quali"))
+  shiny::testServer(mod_model_server,
+                    args = list(dataset_clean = shiny::reactive(ds),
+                                recipe = shiny::reactive(default_recipe())), {
+    session$setInputs(target = "y", positive = "oui", predictors = c("x", "g"), sample_size = n,
+                      group = NO_GROUP, mode = "stratified", test_prop = 0.2, valid_prop = 0.25,
+                      models = c("glm", "ranger"), seed = 1)
+    expect_null(trained())
+    session$setInputs(train = 1)
+    out <- trained()
+    expect_equal(names(out$results), c("glm", "ranger"))
+    expect_match(output$distribution, "Validation")
+    expect_match(output$metrics, "Forêt aléatoire")
+    expect_match(output$confusions$html, "Matrice de confusion")
+    # Invalid settings give a message, not an error.
+    session$setInputs(models = character(0), train = 2)
+    expect_null(trained())
+  })
+})
+
+test_that("results are cleared when the data or the recipe change", {
+  withr::local_seed(11)
+  n <- 200
+  make <- function() make_dataset(
+    data.frame(y = factor(sample(c("non", "oui"), n, TRUE)), x = rnorm(n)),
+    c(y = "quali", x = "quanti"))
+  ds <- shiny::reactiveVal(make())
+  rc <- shiny::reactiveVal(default_recipe())
+  shiny::testServer(mod_model_server, args = list(dataset_clean = ds, recipe = rc), {
+    session$setInputs(target = "y", positive = "oui", predictors = "x", sample_size = n,
+                      group = NO_GROUP, mode = "stratified", models = "glm", seed = 1, train = 1)
+    expect_false(is.null(trained()))
+    ds(make())
+    session$flushReact()
+    expect_null(trained())
+    session$setInputs(train = 2)
+    expect_false(is.null(trained()))
+    rc(utils::modifyList(default_recipe(), list(scale = list(method = "standard"))))
+    session$flushReact()
+    expect_null(trained())
+  })
+})
+
+test_that("a file under 50 rows can be modelled with its default sample size", {
+  ds <- make_dataset(data.frame(y = factor(rep(c("a", "b"), 24)), x = 1:48),
+                     c(y = "quali", x = "quanti"))
+  s <- list(target = "y", positive = "b", predictors = "x", sample_size = 48, group = NULL,
+            mode = "stratified", models = "glm")
+  expect_null(settings_problem(s, ds))
+  expect_match(settings_problem(utils::modifyList(s, list(sample_size = 20)), ds), "48")
+})
