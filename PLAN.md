@@ -463,8 +463,23 @@ Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
 
 Couvre : l'étude de cas (A.4).
 
+- [ ] **E12c. Interface allégée**
+  - Dépend de : E11d (mêmes fichiers de l'onglet 4) ; indépendante de E12a et E12b, qui ne touchent que `data-raw/`.
+  - Objectif : que le chemin principal (charger, choisir la cible, entraîner, évaluer) se voie d'emblée, avant que l'onglet 5 donne les réglages à rejouer (décidé le 8 novembre, après une première visite de l'app déployée).
+  - Contenu :
+    - options rarement modifiées regroupées dans une section « Options avancées » repliée par défaut (balise HTML `details`, sans nouvelle dépendance), avec des valeurs par défaut qui conviennent à un CSV ordinaire : onglet 1, séparateur, en-tête, encodage, marque décimale, codes manquants et colonnes concernées ; onglet 4, ratio du rééchantillonnage, parts du test et de la validation, graine, réglages des importances ; aucune option n'est retirée, le sujet les exige ;
+    - onglet 2 : imputation « Médiane » et « Modalité la plus fréquente » sélectionnées par défaut, pour qu'un entraînement marche sans passer par le Prétraitement ; `default_recipe()` reste sans imputation (fonction du contrat, utilisée par les tests), seule la valeur initiale de l'interface change ;
+    - importance de la logistique (déplacé de E14) : signaler une variable quand une part importante de ses lignes permutées est non estimable, avec un seuil à fixer (sur BAAC, 557 lignes sur 1 000 pour `catv` et 150 chacune pour `catu` et `place`, à cause des variables emboîtées) ; son importance dépend alors de valeurs arbitraires.
+  - Fichiers : `R/mod_data.R`, `R/mod_preprocess.R`, `R/mod_model.R`, `R/fct_importance.R`, `tests/testthat/test-data.R`, `tests/testthat/test-preprocess.R`, `tests/testthat/test-importance.R`.
+  - Vérification :
+    - `testServer` : la recette renvoyée par l'onglet 2 sans aucune action contient l'imputation médiane et mode ; les valeurs des options repliées restent transmises au serveur ;
+    - test : sur l'exemple de E11c (g emboîtée dans f), la variable permutée est signalée, et aucune ne l'est sur un modèle sans variable emboîtée ;
+    - `test-robustness.R` passe toujours ;
+    - navigateur : sur BAAC, entraînement réussi en ne touchant que la cible, la modalité positive, le retrait de `grav`, l'identifiant et le découpage ; sections repliées à l'ouverture et dépliables ; `students.csv` chargé sans ouvrir les options avancées.
+  - Hors périmètre : refonte visuelle ou thème, nouvelles fonctionnalités.
+
 - [ ] **E13. Onglet Étude de cas**
-  - Dépend de : E8, E9, E12b.
+  - Dépend de : E8, E9, E12b, E12c (les réglages à rejouer suivent l'interface finale).
   - Objectif : l'étude de cas, au plan de l'annexe F.
   - Contenu :
     - démarche justifiée : unité usager, période 2019-2024, échantillonnage par accident, découpage temporel, liste blanche des variables, seuil choisi sur 2023, ce que montre l'ablation ;
@@ -479,7 +494,6 @@ Couvre : l'étude de cas (A.4).
 - [ ] **E14. Relecture croisée et redéploiement complet**
   - Dépend de : E13.
   - Vérification : chaque chiffre de la liste de E13 retrouvé dans l'app déployée ou dans la sortie de `03_final_models.R` ; l'URL publique fonctionne de bout en bout.
-  - À faire s'il reste du temps avant le gel, avant les bonus (décidé après E11c) : dans le panneau d'importance de la logistique, signaler une variable quand une part importante de ses lignes permutées est non estimable, à fixer avec un seuil (sur BAAC, 557 lignes sur 1 000 pour `catv` et 150 chacune pour `catu` et `place`, à cause des variables emboîtées). Son importance dépend alors de valeurs arbitraires. L'étude n'est pas concernée, la liste blanche de E12a retirant ces doublons. Fichiers : `R/fct_importance.R`, `R/mod_model.R`, `tests/testthat/test-importance.R` ; vérification : test sur l'exemple de E11c (g emboîtée dans f), où la variable permutée est signalée.
 
 - [ ] **Bonus, s'il reste du temps et si les critères de l'annexe E sont remplis sur l'app déployée** (entre E14 et le gel, retirés s'ils sont inachevés au gel)
   - B1 XGBoost : `R/fct_model_xgb.R`, `tests/testthat/test-model-xgb.R`, plus son enregistrement dans l'interface commune de `fct_models.R` ; s'appuyer sur la documentation de la version de `xgboost` installée par `renv` (l'interface R a changé récemment).
