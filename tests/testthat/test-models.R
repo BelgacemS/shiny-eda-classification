@@ -637,7 +637,8 @@ test_that("non-estimable validation rows are reported after training, test rows 
   }
   expect_false(is.null(found))
   # The pipeline reports the validation count, and only when it is positive.
-  expect_match(out$results$glm$messages, sprintf("%d lignes? de la validation", n_valid), all = FALSE)
+  expect_match(out$results$glm$messages, sprintf("%d lignes? sur %d de la validation", n_valid,
+                                                 length(out$split$valid$y)), all = FALSE)
   clean <- train_pipeline(make_dataset(transform(data, g = factor(ifelse(f == "p", "P", "autre"))),
                                        ds$var_types), default_recipe(), settings(found))
   expect_false(any(grepl("de la validation", clean$results$glm$messages)))
@@ -653,5 +654,75 @@ test_that("non-estimable validation rows are reported after training, test rows 
     res <- tested()$results$glm
     expect_equal(res$non_estimable, length(attr(prob_test, "non_estimable")))
     expect_match(output$test_messages$html, "du test")
+  })
+})
+
+test_that("the non-estimable message agrees in number and gives the size of the part", {
+  one <- structure(c(0.1, 0.2, 0.3), non_estimable = 2L)
+  two <- structure(c(0.1, 0.2, 0.3), non_estimable = c(1L, 3L))
+  expect_match(non_estimable_message(one, "du test"),
+               "^régression logistique : 1 ligne sur 3 du test est non estimable\\. Sa probabilité ")
+  expect_match(non_estimable_message(two, "de la validation"),
+               "^régression logistique : 2 lignes sur 3 de la validation sont non estimables\\. Leur probabilité ")
+  expect_null(non_estimable_message(structure(c(0.1, 0.2), non_estimable = integer(0)), "du test"))
+})
+
+test_that("non_estimable holds positions, not the row names of newx", {
+  d <- nested_data()
+  model <- fit_model("glm", d$x, d$y)
+  new <- data.frame(a = c(0, 1, 0.5), f = factor(c("q", "r", "p"), levels = c("p", "q", "r")),
+                    g = factor(c("autre", "P", "P"), levels = c("autre", "P")),
+                    row.names = c("17", "5", "40"))
+  expect_identical(attr(predict_proba(model, new), "non_estimable"), 2L)
+})
+
+test_that("validation and test counts differ and each goes to its own message", {
+  withr::local_seed(42)
+  n <- 600
+  f <- factor(sample(c("p", "q", "r"), n, TRUE))
+  data <- data.frame(y = factor(ifelse(stats::rbinom(n, 1, 0.35) == 1, "oui", "non")),
+                     a = rnorm(n), f = f, g = factor(ifelse(f == "p", "P", "autre")))
+  # Three broken rows, so that a seed can put a different number of them in
+  # the validation and the test sets (with two, it is always one and one).
+  broken <- c(3, 7, 11)
+  data$g[broken] <- ifelse(data$g[broken] == "P", "autre", "P")
+  ds <- make_dataset(data, c(y = "quali", a = "quanti", f = "quali", g = "quali"))
+  settings <- function(seed) list(target = "y", positive = "oui", predictors = c("a", "f", "g"),
+                                  sample_size = n, group = NULL, mode = "stratified", test_prop = 0.2,
+                                  valid_prop = 0.25, models = "glm", seed = seed)
+  found <- NULL
+  for (seed in 1:200) {
+    out <- train_pipeline(ds, default_recipe(), settings(seed))
+    prob_test <- predict_proba(out$results$glm$model,
+                               apply_recipe(out$results$glm$recipe, out$split$test$x))
+    n_valid <- length(attr(out$results$glm$prob_valid, "non_estimable"))
+    n_test <- length(attr(prob_test, "non_estimable"))
+    if (n_valid > 0 && n_test > 0 && n_valid != n_test) {
+      found <- seed
+      break
+    }
+  }
+  expect_false(is.null(found))
+  expect_match(out$results$glm$messages,
+               sprintf(" %d lignes? sur %d de la validation ", n_valid, length(out$split$valid$y)),
+               all = FALSE)
+  expect_false(any(grepl("du test", c(out$messages, out$results$glm$messages))))
+  res <- evaluate_test(out, c(glm = out$results$glm$threshold))$results$glm
+  expect_identical(res$non_estimable, n_test)
+  expect_match(res$message, sprintf(" %d lignes? sur %d du test ", res$non_estimable,
+                                    length(out$split$test$y)))
+  shiny::testServer(mod_model_server,
+                    args = list(dataset_clean = shiny::reactive(ds),
+                                recipe = shiny::reactive(default_recipe())), {
+    session$setInputs(target = "y", positive = "oui", predictors = c("a", "f", "g"), sample_size = n,
+                      group = NO_GROUP, mode = "stratified", test_prop = 0.2, valid_prop = 0.25,
+                      models = "glm", seed = found, train = 1)
+    expect_false(grepl("du test", output$messages$html))
+    expect_error(output$test_messages)
+    session$setInputs(evaluate = 1)
+    expect_match(output$test_messages$html, sprintf("%d lignes? sur %d du test", n_test, length(trained()$split$test$y)))
+    # Retraining clears the test message.
+    session$setInputs(train = 2)
+    expect_error(output$test_messages)
   })
 })

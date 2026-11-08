@@ -226,10 +226,12 @@ predict_proba <- function(model, newx) {
 non_estimable_message <- function(prob, part) {
   n <- length(attr(prob, "non_estimable"))
   if (n == 0) return(NULL)
-  sprintf(paste0("régression logistique : %d ligne%s %s sur %d non estimable%s : leur probabilité ",
-                 "dépend d'un choix arbitraire du calcul (coefficients non estimables). Regrouper ",
+  one <- n == 1
+  sprintf(paste0("régression logistique : %d ligne%s sur %d %s %s non estimable%s. %s probabilité ",
+                 "dépend d'un choix arbitraire du calcul (coefficients non estimables) ; regrouper ",
                  "les modalités rares ou retirer les variables redondantes."),
-          n, if (n > 1) "s" else "", part, length(prob), if (n > 1) "s" else "")
+          n, if (one) "" else "s", length(prob), part, if (one) "est" else "sont",
+          if (one) "" else "s", if (one) "Sa" else "Leur")
 }
 
 # --- Pipeline of the modelling tab ------------------------------------------
