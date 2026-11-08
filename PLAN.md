@@ -375,8 +375,8 @@ Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
     - `perm_importance(predict_fn, test_raw, y, vars, n_rep, seed)` : baisse d'AUC quand on permute une variable d'origine, avec une prédiction qui inclut `apply_recipe`, calculée après le bouton « Évaluer sur le test », sur un sous-échantillon du test (taille réglable) ;
     - graphique par modèle ;
     - pour la logistique : valeur absolue des coefficients standardisés (`|β_j| × s_j`, `s_j` écart-type en 1/n de la colonne j dans l'entraînement après recette) ; odds ratios et IC à 95 % (`exp(cbind(coef(fit), confint.default(fit)))`) sur le modèle non pondéré, avec la mention que ces IC supposent des observations indépendantes ;
-    - choix de la stratégie de rééquilibrage, appliquée via `balance_train()` (`quasibinomial` pour la logistique pondérée), répartition des classes affichée après rééquilibrage.
-  - Fichiers : `R/fct_importance.R`, `R/mod_model.R`, `tests/testthat/test-importance.R`.
+    - choix de la stratégie de rééquilibrage, appliquée via `balance_train()` dans `train_pipeline()`, après la recette (`quasibinomial` pour la logistique pondérée), répartition des classes affichée après rééquilibrage ; une modalité que le rééchantillonnage retire de l'entraînement alors que la validation ou le test l'ont encore est prédite comme la modalité la plus fréquente de l'entraînement, avec un message (une modalité absente des données reste une erreur) ; les odds ratios viennent d'un modèle non pondéré qui garde les modalités de référence du modèle entraîné.
+  - Fichiers : `R/fct_importance.R`, `R/fct_models.R` (rééquilibrage dans `train_pipeline()`, modalités perdues au rééchantillonnage), `R/mod_model.R`, `tests/testthat/test-importance.R`.
   - Vérification :
     - test sur données simulées où `y` ne dépend que de `x1` : importance de `x1` > 0, importance d'une variable de bruit proche de 0 ;
     - test : la validation et le test sont identiques avec et sans rééquilibrage ;
