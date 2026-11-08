@@ -387,8 +387,37 @@ Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
     - temps de calcul des importances sur BAAC mesuré dans l'app déployée.
   - Hors périmètre : modèles finaux BAAC.
 
+- [ ] **E11c. Prédictions non estimables de la logistique, mémoire du J5**
+  - Dépend de : E11b.
+  - Objectif : rendre visibles les prédictions de la logistique qui dépendent d'un choix arbitraire, et mettre à jour les risques avec les mesures du J5.
+  - Contenu :
+    - sur un modèle de rang incomplet (coefficients non estimables, fréquents avec le sous-échantillonnage ou des variables redondantes), une nouvelle ligne peut être non estimable : sa prédiction dépend du pivot arbitraire de la décomposition QR (sur un exemple jouet, 0,840 devient 0,795 en réordonnant la formule), et `predict.lm` émet un avertissement ; `predict_proba()` prédit la logistique par `stats::predict.lm(..., rankdeficient = "non-estim")` puis l'inverse du lien (vérifié sous R 4.5.2 : mêmes valeurs que `predict.glm(type = "response")`, aucun avertissement, lignes non estimables dans l'attribut `"non-estim"`) ; `predict.glm` ne transmet pas `rankdeficient` à `predict.lm`, d'où l'appel direct ; aucun filtrage sur le texte de l'avertissement, traduit selon la langue ;
+    - le nombre de lignes non estimables est affiché pour la validation et, après le bouton, pour le test, avec un message qui renvoie au regroupement des modalités rares et au retrait des variables redondantes ;
+    - tableau des risques : au J5, deux sessions successives servies par le même processus R atteignent 921,4 Mio (deux entraînements et deux calculs d'importances chacune) ; deux sessions simultanées ne sont pas mesurées et dépasseraient probablement 1 024 Mio ; README mis à jour avec ce chiffre.
+  - Fichiers : `R/fct_models.R`, `R/mod_model.R`, `README.md`, `PLAN.md` (tableau des risques), `tests/testthat/test-models.R`.
+  - Vérification :
+    - test : sur un modèle de rang plein, prédictions identiques (`identical()` sur les valeurs) à celles de `predict.glm(type = "response")` et aucune ligne non estimable ;
+    - test : sur un modèle de rang incomplet, mêmes valeurs que `predict.glm`, aucun avertissement, et exactement les lignes non estimables attendues sur un exemple construit à la main ;
+    - `testServer` : le nombre de lignes non estimables de la validation est affiché après l'entraînement, celui du test seulement après le bouton ;
+    - sur BAAC (20 000 lignes, sous-échantillonnage), nombre de lignes non estimables relevé dans la demande de fusion.
+  - Hors périmètre : modifier les modèles pour supprimer la non-estimabilité (c'est le rôle de la liste blanche de E12a et du regroupement des modalités rares).
+
+- [ ] **E11d. Alerte de fuite robuste aux petites validations**
+  - Dépend de : E11a.
+  - Objectif : ne plus signaler comme fuite une liaison forte mais réelle mesurée sur peu de lignes (au J5, `Height` sur `students.csv`, 10 lignes de validation).
+  - Contenu :
+    - l'alerte se déclenche quand la borne basse de l'intervalle de confiance à 95 % de l'AUC univariée (DeLong et al., 1988, `pROC::ci.auc(method = "delong")`, sans nouvelle dépendance) dépasse 0,95, et non plus la valeur brute ; après la symétrisation `max(AUC, 1 − AUC)`, la borne basse est celle de l'AUC si elle est au moins 0,5, sinon `1 −` sa borne haute ;
+    - une variable dont l'AUC brute dépasse 0,95 sans que la borne basse le fasse reçoit un message plus prudent (« liaison très forte, validation trop petite pour conclure ») plutôt que « Fuite probable » ;
+    - `univariate_auc()` garde sa sortie (un vecteur d'AUC, utilisé par E12a) ; les bornes et les effectifs par variable viennent d'une option ou d'une fonction voisine.
+  - Fichiers : `R/fct_metrics.R`, `R/fct_models.R`, `R/mod_model.R`, `tests/testthat/test-metrics.R`, `tests/testthat/test-models.R`.
+  - Vérification :
+    - test : la borne basse est celle de `pROC::ci.auc(method = "delong")`, symétrisée correctement pour une AUC inférieure à 0,5 ;
+    - test : une copie de la cible déclenche toujours l'alerte sur une validation de taille normale ; une variable d'AUC réelle proche de 0,9 mesurée sur 10 lignes ne la déclenche pas et reçoit le message prudent ;
+    - les tests de l'alerte de E11a passent toujours.
+  - Hors périmètre : le seuil de relecture à 0,8 de E12a, qui reste sur l'AUC brute.
+
 - [ ] **E12a. Pipeline des modèles finaux BAAC**
-  - Dépend de : E4, E11a (`univariate_auc`).
+  - Dépend de : E4, E11a (`univariate_auc`), E11c (prédictions de la logistique et lignes non estimables).
   - Objectif : un script complet et contrôlé, testé sur 10 % de l'entraînement.
   - Contenu :
     - `data-raw/model_vars.R` : liste blanche des variables, spécification principale (conditions de l'accident) et ablation (+ `col`, `choc`, `obs`, `obsm`) ; une seule variable par information : `catv_groupe` (regroupement de `catv`, moins de modalités rares) et pas `catv` ; `place` relue face à `catu`, dont elle est presque un détail (la place 1 réunit presque tous les conducteurs, « Piéton » recopie exactement les piétons) ; les variables propres aux piétons (`locp`, `actp`, `etatp`) sont emboîtées dans `catu` (leur modalité « Sans objet » est celle des non-piétons : les autres modalités de `etatp` font exactement les piétons, d'où une colinéarité avec `catu` et la constante quel que soit le niveau de référence) et `occutc` n'est renseignée que pour les bus et cars ; pour chaque groupe emboîté, la spécification principale ne garde qu'une variable (par exemple `etatp` retirée), ou la variable emboîtée n'est gardée qu'à l'intérieur de son groupe, ce qui revient à la retirer pour les autres usagers ; l'assertion sur les coefficients `NA` le vérifie. But : aucun coefficient non estimable dans la logistique (19 dans l'app au redéploiement J4), et une importance par permutation qui ne soit pas faussée par des variables redondantes (Strobl et al., 2008 ; Hooker et al., 2021) ;
@@ -524,6 +553,7 @@ Si `main` a avancé pendant l'étape (fusion d'une étape menée en parallèle),
 - Robin, X. et al. (2011). pROC: an open-source package for R and S+ to analyze and compare ROC curves. *BMC Bioinformatics*, 12, 77.
 - Strobl, C., Boulesteix, A.-L., Kneib, T., Augustin, T. et Zeileis, A. (2008). Conditional variable importance for random forests. *BMC Bioinformatics*, 9, 307.
 - Strobl, C., Boulesteix, A.-L., Zeileis, A. et Hothorn, T. (2007). Bias in random forest variable importance measures. *BMC Bioinformatics*, 8, 25.
+- DeLong, E. R., DeLong, D. M. et Clarke-Pearson, D. L. (1988). Comparing the areas under two or more correlated receiver operating characteristic curves: a nonparametric approach. *Biometrics*, 44(3), 837-845.
 - Fisher, A., Rudin, C. et Dominici, F. (2019). All Models are Wrong, but Many are Useful. *JMLR*, 20(177).
 - Hooker, G., Mentch, L. et Zhou, S. (2021). Unrestricted permutation forces extrapolation. *Statistics and Computing*, 31, 82.
 - van den Goorbergh, R., van Smeden, M., Timmerman, D. et Van Calster, B. (2022). The harm of class imbalance corrections for risk prediction models. *JAMIA*, 29(9).
