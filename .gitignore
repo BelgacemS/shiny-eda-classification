@@ -28,3 +28,6 @@ tests/testthat/fixtures/course/
 
 # Versioned in this project, even if ignored globally on a machine
 !CLAUDE.md
+
+# testthat copies of failing tests
+tests/testthat/_problems/
