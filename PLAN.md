@@ -338,7 +338,7 @@ Couvre : l'exploration (A.2) et le début de la modélisation (A.3).
     - 20 000 lignes BAAC entraînées en moins de 30 s en local.
   - Hors périmètre : ROC, AUC, `rpart`, seuils par modèle, importances, rééquilibrage (E11).
 
-- [ ] **Redéploiement J4** : après fusion de E8, E9 et E10b, 20 000 lignes BAAC entraînées en moins de 30 s sur l'URL publique, mémoire et heures actives relevées dans le tableau de bord shinyapps.io.
+- [x] **Redéploiement J4** : après fusion de E8, E9 et E10b, 20 000 lignes BAAC entraînées en moins de 30 s sur l'URL publique, mémoire et heures actives relevées dans le tableau de bord shinyapps.io.
 
 ### Jalon 5 : évaluation comparative et modèles finaux
 
