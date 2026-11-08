@@ -479,7 +479,7 @@ Couvre : l'étude de cas (A.4).
 - [ ] **E14. Relecture croisée et redéploiement complet**
   - Dépend de : E13.
   - Vérification : chaque chiffre de la liste de E13 retrouvé dans l'app déployée ou dans la sortie de `03_final_models.R` ; l'URL publique fonctionne de bout en bout.
-  - À faire s'il reste du temps avant le gel (décidé après E11c) : dans le panneau d'importance de la logistique, signaler une variable quand une part importante de ses lignes permutées est non estimable (sur BAAC, 557 lignes sur 1 000 pour `catv`, 150 pour `catu` et `place`, à cause des variables emboîtées) : son importance dépend alors de valeurs arbitraires. L'étude n'est pas concernée, la liste blanche de E12a retirant ces doublons ; vérifier aussi si Bank Marketing (recette E16) a des variables emboîtées.
+  - À faire s'il reste du temps avant le gel, avant les bonus (décidé après E11c) : dans le panneau d'importance de la logistique, signaler une variable quand une part importante de ses lignes permutées est non estimable, à fixer avec un seuil (sur BAAC, 557 lignes sur 1 000 pour `catv` et 150 chacune pour `catu` et `place`, à cause des variables emboîtées). Son importance dépend alors de valeurs arbitraires. L'étude n'est pas concernée, la liste blanche de E12a retirant ces doublons. Fichiers : `R/fct_importance.R`, `R/mod_model.R`, `tests/testthat/test-importance.R` ; vérification : test sur l'exemple de E11c (g emboîtée dans f), où la variable permutée est signalée.
 
 - [ ] **Bonus, s'il reste du temps et si les critères de l'annexe E sont remplis sur l'app déployée** (entre E14 et le gel, retirés s'ils sont inachevés au gel)
   - B1 XGBoost : `R/fct_model_xgb.R`, `tests/testthat/test-model-xgb.R`, plus son enregistrement dans l'interface commune de `fct_models.R` ; s'appuyer sur la documentation de la version de `xgboost` installée par `renv` (l'interface R a changé récemment).
@@ -490,7 +490,7 @@ Couvre : l'étude de cas (A.4).
 Couvre : les critères d'acceptation (annexe E) et la saisie de l'URL (A.5).
 
 - [ ] **E15. Gel des fonctionnalités** (après E14 et les bonus éventuels) : tag `freeze` sur `main` ; ensuite, seulement des corrections.
-- [ ] **E16. Recette** (après E15) : critère de réussite global ci-dessus, depuis une autre machine, avec Bank Marketing ; heures actives restantes vérifiées.
+- [ ] **E16. Recette** (après E15) : critère de réussite global ci-dessus, depuis une autre machine, avec Bank Marketing ; heures actives restantes vérifiées ; noter si la logistique signale des coefficients ou des lignes non estimables sur ce fichier (variables emboîtées), sans l'avoir chargé avant.
 - [ ] **E17. Saisie de l'URL** (après E16) dans le fichier des groupes du cours.
 
 ## Si le temps manque
