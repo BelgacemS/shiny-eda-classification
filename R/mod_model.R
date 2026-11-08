@@ -19,7 +19,8 @@ mod_model_ui <- function(id) {
       numericInput(ns("sample_size"), "Taille de l'échantillon (lignes)", value = 20000,
                    min = 10, step = 1000),
       selectInput(ns("group"), "Identifiant de groupe", choices = NO_GROUP),
-      helpText("Avec un identifiant, l'échantillon et le découpage gardent chaque groupe entier."),
+      helpText("Avec un identifiant, l'échantillon garde chaque groupe entier ; choisir le",
+               "découpage groupé (ou par variable) pour que le découpage le garde aussi."),
       radioButtons(ns("mode"), "Découpage", SPLIT_MODE_CHOICES),
       conditionalPanel(
         sprintf("input['%s'] == 'variable'", ns("mode")),
@@ -38,6 +39,7 @@ mod_model_ui <- function(id) {
     ),
     mainPanel(
       textOutput(ns("dims")),
+      textOutput(ns("trained_for")),
       h4("Répartition de la cible"),
       tableOutput(ns("distribution")),
       uiOutput(ns("messages")),
@@ -76,6 +78,10 @@ mod_model_server <- function(id, dataset_clean, recipe) {
       updateNumericInput(session, "sample_size", value = min(nrow(data), 20000))
     })
 
+    # The predictors selected by hand are kept while the target is unchanged:
+    # a variable removed from the predictors (one derived from the target) must
+    # not come back when the preprocessing changes.
+    last_target <- reactiveVal(NULL)
     observeEvent(list(input$target, columns()), {
       req(input$target, input$target %in% names(columns()))
       levels <- levels(droplevels(as.factor(dataset_clean()$data[[input$target]])))
@@ -83,7 +89,10 @@ mod_model_server <- function(id, dataset_clean, recipe) {
                         selected = head(c(intersect(input$positive, levels), levels[length(levels)]), 1))
       types <- columns()
       candidates <- setdiff(names(types)[types %in% c("quanti", "quali")], input$target)
-      updateSelectizeInput(session, "predictors", choices = candidates, selected = candidates)
+      same_target <- identical(input$target, last_target()) && !is.null(input$predictors)
+      selected <- if (same_target) intersect(input$predictors, candidates) else candidates
+      updateSelectizeInput(session, "predictors", choices = candidates, selected = selected)
+      last_target(input$target)
     })
 
     observeEvent(list(input$by, columns()), {
@@ -132,6 +141,13 @@ mod_model_server <- function(id, dataset_clean, recipe) {
         }
       )
       trained(result)
+    })
+
+    output$trained_for <- renderText({
+      out <- trained()
+      req(out)
+      sprintf("Résultats du dernier entraînement : cible %s, modalité positive « %s ».",
+              out$target, out$positive)
     })
 
     output$distribution <- renderTable({
@@ -197,7 +213,16 @@ settings_problem <- function(s, dataset) {
   if (is.null(s$sample_size) || is.na(s$sample_size) || s$sample_size < minimum) {
     return(sprintf("La taille de l'échantillon doit être d'au moins %d lignes.", minimum))
   }
+  if (!s$target %in% names(dataset$data) ||
+      !s$positive %in% as.character(dataset$data[[s$target]])) {
+    return("La modalité positive n'existe pas dans la cible.")
+  }
+  if (is.null(s$seed) || is.na(s$seed)) return("Choisir une graine.")
   if (s$mode == "grouped" && is.null(s$group)) return("Le découpage groupé demande un identifiant de groupe.")
+  # A stratified split ignores groups: the rows of a group would land on both sides.
+  if (s$mode == "stratified" && !is.null(s$group)) {
+    return("Avec un identifiant de groupe, choisir le découpage groupé (ou par variable) pour garder chaque groupe entier.")
+  }
   if (s$mode == "variable" && length(s$test_values) == 0) {
     return("Choisir les valeurs de la variable à mettre en test.")
   }

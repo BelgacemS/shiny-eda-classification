@@ -43,6 +43,9 @@ fit_model <- function(type, x, y, weights = NULL, ...) {
   if (length(unique(y)) < 2) {
     stop("l'entraînement ne contient qu'une classe de la cible.", call. = FALSE)
   }
+  if (ncol(x) == 0) {
+    stop("aucune variable explicative informative dans l'entraînement.", call. = FALSE)
+  }
   fit <- switch(type, glm = fit_glm(x, y, weights), ranger = fit_ranger(x, y, weights, ...))
   structure(
     list(type = type, fit = fit$model, columns = names(x), levels = fit$levels,
@@ -67,13 +70,17 @@ fit_glm <- function(x, y, weights) {
     c(names(counts)[which.max(counts)], setdiff(levels(x[[v]]), names(counts)[which.max(counts)]))
   })
   for (v in factors) x[[v]] <- factor(x[[v]], levels = levels[[v]])
+  # The target goes in a reserved column; the weights stay out of the data, in
+  # ..w of this function: glm() looks for `weights` in the data first, so a
+  # predictor named "weights" would otherwise become the weights.
   data <- x
   data$..y <- y
-  integer_weights <- is.null(weights) || all(weights == round(weights))
+  ..w <- if (is.null(weights)) rep(1, length(y)) else weights
+  integer_weights <- all(..w == round(..w))
   family <- if (integer_weights) stats::binomial() else stats::quasibinomial()
   warnings <- character(0)
   model <- withCallingHandlers(
-    stats::glm(..y ~ ., data = data, family = family, weights = weights),
+    stats::glm(..y ~ ., data = data, family = family, weights = ..w),
     warning = function(w) {
       warnings <<- c(warnings, conditionMessage(w))
       invokeRestart("muffleWarning")
@@ -116,6 +123,11 @@ predict_proba <- function(model, newx) {
   }
   newx <- newx[model$columns]
   newx[] <- lapply(newx, function(v) if (is.logical(v)) as.numeric(v) else v)
+  with_na <- names(newx)[vapply(newx, anyNA, logical(1))]
+  if (length(with_na) > 0) {
+    stop("valeurs manquantes après la recette dans : ", paste(with_na, collapse = ", "),
+         " ; choisir une imputation dans l'onglet Prétraitement.", call. = FALSE)
+  }
   if (model$type == "glm") {
     for (v in names(model$levels)) {
       unseen <- setdiff(unique(as.character(newx[[v]])), c(model$levels[[v]], NA))
@@ -127,7 +139,9 @@ predict_proba <- function(model, newx) {
     }
     return(unname(stats::predict(model$fit, newdata = newx, type = "response")))
   }
-  unname(stats::predict(model$fit, data = newx, num.threads = 1)$predictions[, "1"])
+  # A fixed seed: predict.ranger() otherwise draws one from the global random
+  # state, shared by all sessions of the server.
+  unname(stats::predict(model$fit, data = newx, num.threads = 1, seed = 1)$predictions[, "1"])
 }
 
 # --- Pipeline of the modelling tab ------------------------------------------
@@ -188,8 +202,10 @@ train_pipeline <- function(dataset, recipe, settings) {
          messages = unique(c(notes, fitted$messages, model$messages)))
   })
 
-  list(split = split, results = results, messages = messages,
-       distribution = target_distribution(split), positive = settings$positive)
+  # sample_rows: indices of the sample in the data with a target (the split's
+  # rows index this sample).
+  list(split = split, results = results, messages = messages, sample_rows = rows,
+       distribution = target_distribution(split), target = target, positive = settings$positive)
 }
 
 # Size and share of positives of each part.
