@@ -165,3 +165,12 @@ test_that("NA is a level of its own and unseen levels take the training prevalen
   # (a, b) 1, (b, NA) 1, (b, b) 1/2: AUC = 3.5 / 4.
   expect_equal(univariate_auc(x_train, y_train, x_eval, y_eval)[["g"]], 3.5 / 4)
 })
+
+test_that("a quanti predictor with missing values is scored on its complete cases", {
+  x_train <- data.frame(v = c(1, 2, NA, 4))
+  y_train <- c(0, 1, 0, 1)
+  x_eval <- data.frame(v = c(1, NA, 3, 4, NA))
+  y_eval <- c(0, 0, 1, 1, 1)
+  # Complete cases of the evaluation set: (1, 0), (3, 1), (4, 1), so AUC = 1.
+  expect_equal(univariate_auc(x_train, y_train, x_eval, y_eval)[["v"]], 1)
+})
