@@ -56,4 +56,6 @@ test_that("invalid inputs are refused with a message", {
   expect_error(confusion(c(1, NA), c(0.1, 0.2)), "0 ou 1")
   expect_error(confusion(c(1, 0), c(0.1, NA)), "renseignés")
   expect_error(confusion(c(1, 0), 0.1), "longueur")
+  expect_error(confusion(c(1, 0), c(0.1, 0.9), threshold = c(0.2, 0.5)), "seuil")
+  expect_error(confusion(c(1, 0), c(0.1, 0.9), threshold = NA), "seuil")
 })

@@ -54,10 +54,13 @@ test_that("no group is in two parts, in grouped and variable modes", {
 })
 
 test_that("groups cut by the test values of the variable mode are counted", {
-  # Group "a" has a row in 2024 and a row in 2023.
-  x <- data.frame(year = c(2024, 2023, 2023, 2024, 2023, 2023))
-  s <- split_data(x, c(1, 0, 1, 0, 1, 0), "variable", groups = c("a", "a", "b", "c", "d", "d"),
-                  by = x$year, test_values = 2024, seed = 1)
+  # One group of at least two rows gets a row in 2024 and the others in 2023.
+  d <- simulate(n_groups = 200)
+  sizes <- table(d$groups)
+  rows <- which(d$groups == names(sizes)[sizes >= 2][1])
+  d$x$year[rows] <- 2023
+  d$x$year[rows[1]] <- 2024
+  s <- split_data(d$x, d$y, "variable", groups = d$groups, by = d$x$year, test_values = 2024, seed = 1)
   expect_equal(attr(s, "crossing_groups"), 1L)
 })
 
@@ -94,14 +97,40 @@ test_that("the variable mode puts exactly the rows with the test values in test"
 })
 
 test_that("a missing group id makes its row a group of its own", {
-  y <- c(1, 0, 1, 0, 1, 0, 1, 0, 1, 0)
-  groups <- c("a", "a", NA, NA, NA, "b", "b", NA, "c", "c")
-  s <- split_data(data.frame(i = 1:10), y, "grouped", groups = groups, test_prop = 0.5, seed = 2)
-  expect_equal(all_rows(s), 1:10)
-  for (g in c("a", "b", "c")) {
-    sides <- vapply(s, function(part) any(groups[part$rows] %in% g), logical(1))
-    expect_equal(sum(sides), 1)
-  }
+  d <- simulate(n_groups = 300)
+  d$groups[seq(1, length(d$groups), by = 3)] <- NA
+  s <- split_data(d$x, d$y, "grouped", groups = d$groups, seed = 2)
+  expect_equal(all_rows(s), seq_along(d$y))
+  # Named groups stay on one side.
+  named <- lapply(s, function(part) unique(stats::na.omit(d$groups[part$rows])))
+  expect_length(intersect(named$train, named$test), 0)
+  expect_length(intersect(named$train, named$valid), 0)
+  # Rows without group id are not one big group: they are spread over the parts.
+  na_rows <- which(is.na(d$groups))
+  sides <- vapply(s, function(part) any(part$rows %in% na_rows), logical(1))
+  expect_true(all(sides))
+})
+
+test_that("the stratified mode works on rows alone and ignores groups", {
+  d <- simulate()
+  s <- split_data(d$x, d$y, "stratified", seed = 4)
+  p <- vapply(s, prevalence, numeric(1))
+  expect_lte(max(p) - min(p), 0.02)
+  expect_identical(s, split_data(d$x, d$y, "stratified", seed = 4))
+  expect_identical(s, split_data(d$x, d$y, "stratified", groups = d$groups, seed = 4))
+  expect_false(identical(s$test$rows, split_data(d$x, d$y, "stratified", seed = 5)$test$rows))
+})
+
+test_that("empty parts or a single class in train or validation stop the split", {
+  x <- data.frame(a = 1:13)
+  expect_error(split_data(x[1:2, , drop = FALSE], c(1, 0)), "vide")
+  # 3 positives among 13 rows: no positive left for the validation set.
+  expect_error(split_data(x, c(1, 1, 1, rep(0, 10)), seed = 1), "une classe|vide")
+  d <- simulate(n_groups = 200)
+  expect_error(split_data(d$x, d$y, "variable", by = d$x$year, test_values = 2030), "test est vide")
+  expect_error(split_data(d$x, d$y, "variable", by = replace(d$x$year, 1, NA), test_values = 2024),
+               "manquantes")
+  expect_error(split_data(d$x, d$y, test_prop = 0), "proportions")
 })
 
 test_that("sample_rows draws whole groups until the size is reached", {
@@ -112,8 +141,18 @@ test_that("sample_rows draws whole groups until the size is reached", {
   chosen <- unique(d$groups[rows])
   expect_equal(sort(rows), which(d$groups %in% chosen))
   expect_identical(rows, sample_rows(length(d$y), 1000, groups = d$groups, seed = 3))
-  expect_equal(length(sample_rows(100, 30, seed = 1)), 30)
+  plain <- sample_rows(1000, 100, seed = 1)
+  expect_length(plain, 100)
+  # A random draw, not the first rows (a file sorted by year would give one year).
+  expect_false(identical(plain, 1:100))
+  expect_false(identical(plain, sample_rows(1000, 100, seed = 2)))
+  expect_gt(max(plain), 500)
   expect_equal(sample_rows(10, 50), 1:10)
+  # Groups of 2 rows and a size of 10: exactly 10 rows, the draw stops as soon
+  # as the size is reached.
+  expect_length(sample_rows(40, 10, groups = rep(1:20, each = 2), seed = 1), 10)
+  expect_error(sample_rows(10, 0), "taille")
+  expect_error(sample_rows(10, 5, groups = 1:3), "groupe")
 })
 
 test_that("invalid inputs are refused with a message", {
