@@ -32,6 +32,9 @@ fit_model <- function(type, x, y, weights = NULL, ...) {
     stop("valeurs manquantes après la recette dans : ", paste(with_na, collapse = ", "),
          " ; choisir une imputation dans l'onglet Prétraitement.", call. = FALSE)
   }
+  # Levels without rows: resampling the training set after the recipe can
+  # remove a rare level that the validation and test sets still have.
+  absent <- lapply(x, function(v) if (is.factor(v)) setdiff(levels(v), as.character(v)) else character(0))
   x[] <- lapply(x, function(v) if (is.factor(v)) droplevels(v) else if (is.logical(v)) as.numeric(v) else v)
   dropped <- names(x)[vapply(x, uninformative, logical(1))]
   x <- x[setdiff(names(x), dropped)]
@@ -40,6 +43,22 @@ fit_model <- function(type, x, y, weights = NULL, ...) {
            paste(dropped, collapse = ", "))
   } else {
     character(0)
+  }
+  # Such a level is predicted as the most frequent training level, the rule of
+  # the recipe for unseen levels; a level absent from the data stays an error.
+  fallback <- list()
+  for (v in intersect(names(x)[vapply(x, is.factor, logical(1))], names(absent))) {
+    if (length(absent[[v]]) > 0) {
+      counts <- table(x[[v]])
+      fallback[[v]] <- list(levels = absent[[v]], to = names(counts)[which.max(counts)])
+    }
+  }
+  if (length(fallback) > 0) {
+    messages <- c(messages, paste0(
+      "modalités sans ligne dans l'entraînement (après rééquilibrage), prédites comme la modalité ",
+      "la plus fréquente : ", paste(vapply(names(fallback), function(v) {
+        sprintf("%s (%s)", v, paste(fallback[[v]]$levels, collapse = ", "))
+      }, character(1)), collapse = " ; ")))
   }
   if (length(unique(y)) < 2) {
     stop("l'entraînement ne contient qu'une classe de la cible.", call. = FALSE)
@@ -51,7 +70,7 @@ fit_model <- function(type, x, y, weights = NULL, ...) {
                 rpart = fit_rpart(x, y, weights, ...))
   structure(
     list(type = type, fit = fit$model, columns = names(x), levels = fit$levels,
-         dropped = dropped, messages = c(messages, fit$messages)),
+         fallback = fallback, dropped = dropped, messages = c(messages, fit$messages)),
     class = "fitted_model"
   )
 }
@@ -149,6 +168,12 @@ predict_proba <- function(model, newx) {
   }
   newx <- newx[model$columns]
   newx[] <- lapply(newx, function(v) if (is.logical(v)) as.numeric(v) else v)
+  for (v in names(model$fallback)) {
+    fb <- model$fallback[[v]]
+    values <- as.character(newx[[v]])
+    values[values %in% fb$levels] <- fb$to
+    newx[[v]] <- factor(values, levels = setdiff(levels(newx[[v]]), fb$levels))
+  }
   with_na <- names(newx)[vapply(newx, anyNA, logical(1))]
   if (length(with_na) > 0) {
     stop("valeurs manquantes après la recette dans : ", paste(with_na, collapse = ", "),
@@ -177,7 +202,9 @@ predict_proba <- function(model, newx) {
 
 # settings: target, positive (level of the target coded 1), predictors,
 # sample_size, group (column name or NULL), mode, test_prop, valid_prop,
-# by (column name), test_values, models (types), seed.
+# by (column name), test_values, models (types), seed; balance (a method of
+# BALANCE_METHODS, "none" by default) and balance_ratio (resampling ratio, 1
+# by default), applied to the training set after the recipe.
 # Steps: rows without target removed, target coded 0/1, sample, split, recipe
 # fitted on the training set (k - 1 dummies imposed for the logistic
 # regression), models; on the validation set: ROC, AUC, threshold of maximal
@@ -227,7 +254,13 @@ train_pipeline <- function(dataset, recipe, settings) {
     }
     fitted <- fit_recipe(model_recipe, split$train$x, types[predictors])
     y_train <- split$train$y[fitted$kept_rows]
-    model <- fit_model(type, fitted$train, y_train, seed = settings$seed)
+    # Rebalancing touches the training set only: validation and test keep the
+    # real class distribution.
+    method <- settings$balance %||% "none"
+    balanced <- balance_train(list(train = list(x = fitted$train, y = y_train)), method,
+                              settings$balance_ratio %||% 1, settings$seed)$train
+    model <- fit_model(type, balanced$x, balanced$y, weights = balanced$weights,
+                       seed = settings$seed)
     x_valid <- apply_recipe(fitted, split$valid$x)
     prob <- predict_proba(model, x_valid)
     fitted_at <- proc.time()[["elapsed"]]
@@ -236,7 +269,10 @@ train_pipeline <- function(dataset, recipe, settings) {
     roc <- roc_curve(split$valid$y, prob)
     timings[[type]] <<- fitted_at - started
     timings[[paste0(type, "_roc_threshold")]] <<- proc.time()[["elapsed"]] - fitted_at
-    list(model = model, recipe = fitted, prob_valid = prob, threshold = threshold,
+    w <- balanced$weights %||% rep(1, length(balanced$y))
+    balance <- list(method = method, n = length(balanced$y), positives = sum(balanced$y),
+                    share = sum(w * balanced$y) / sum(w))
+    list(model = model, recipe = fitted, prob_valid = prob, threshold = threshold, balance = balance,
          confusion = at_threshold$confusion, metrics = at_threshold$metrics, roc = roc,
          messages = unique(c(notes, fitted$messages, model$messages)))
   })
@@ -258,7 +294,7 @@ train_pipeline <- function(dataset, recipe, settings) {
   list(split = split, results = results, messages = messages, sample_rows = rows,
        distribution = target_distribution(split), target = target, positive = settings$positive,
        naive_valid = naive_metrics(split$valid$y), univariate_auc = uni_auc, leak = leak,
-       timings = timings)
+       seed = settings$seed, timings = timings)
 }
 
 # Test evaluation, on demand: each model predicts the test set through its

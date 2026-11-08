@@ -2,7 +2,11 @@
 # training set, logistic regression, random forest and tree (E10b). On the
 # internal validation set: ROC, AUC, one threshold slider per model set at the
 # maximal F1, comparison table with naive references (E11a). The test set is
-# evaluated on a button only, with the thresholds fixed at that moment.
+# evaluated on a button only, with the thresholds fixed at that moment; the
+# importances follow it (E11b). Rebalancing of the training set (E7, E11b).
+
+BALANCE_CHOICES <- c("Aucun" = "none", "Pondération des classes" = "weights",
+                     "Sous-échantillonnage" = "under", "Sur-échantillonnage" = "over")
 
 SPLIT_MODE_CHOICES <- c("Stratifié" = "stratified", "Groupé par identifiant" = "grouped",
                         "Par variable (test = valeurs choisies)" = "variable")
@@ -33,6 +37,15 @@ mod_model_ui <- function(id) {
                   min = 0.1, max = 0.5, value = 0.25, step = 0.05),
       checkboxGroupInput(ns("models"), "Modèles", stats::setNames(names(MODEL_LABELS), MODEL_LABELS),
                          selected = names(MODEL_LABELS)),
+      radioButtons(ns("balance"), "Rééquilibrage de l'entraînement", BALANCE_CHOICES),
+      conditionalPanel(
+        sprintf("input['%s'] == 'under' || input['%s'] == 'over'", ns("balance"), ns("balance")),
+        sliderInput(ns("balance_ratio"), "Ratio visé (minorité / majorité)", min = 0.2, max = 1,
+                    value = 1, step = 0.1)
+      ),
+      helpText("Appliqué à l'entraînement seul, après la recette : la validation et le test gardent",
+               "la vraie répartition. Ces corrections déplacent surtout les probabilités et donc le seuil,",
+               "souvent sans gain d'AUC (van den Goorbergh et al., 2022)."),
       numericInput(ns("seed"), "Graine", value = 1, min = 1, step = 1),
       actionButton(ns("train"), "Entraîner", class = "btn-primary"),
       width = 4
@@ -55,11 +68,25 @@ mod_model_ui <- function(id) {
       h4("Test"),
       helpText("Le test n'est évalué qu'à la demande, avec les seuils courants, alors figés :",
                "déplacer un curseur ensuite ne change pas ces résultats. Un nouvel entraînement les efface."),
+      fluidRow(
+        column(5, numericInput(ns("importance_size"), "Lignes du test pour les importances",
+                               value = 1000, min = 100, step = 500)),
+        column(4, numericInput(ns("importance_reps"), "Permutations par variable",
+                               value = 1, min = 1, max = 5, step = 1))
+      ),
       actionButton(ns("evaluate"), "Évaluer sur le test"),
       textOutput(ns("test_info")),
       tableOutput(ns("test_metrics")),
       plotOutput(ns("roc_test"), height = "380px"),
       uiOutput(ns("test_confusions")),
+      h4("Importance des variables"),
+      helpText("Calculée après « Évaluer sur le test », sur un sous-échantillon du test : baisse d'AUC",
+               "quand on permute une variable d'origine (avant la recette). Une variable corrélée à une",
+               "autre peut paraître peu importante, l'autre gardant l'information, et la permutation crée",
+               "des combinaisons irréalistes (Hooker et al., 2021)."),
+      textOutput(ns("importance_info")),
+      uiOutput(ns("importance_plot_ui")),
+      uiOutput(ns("logistic_importance")),
       width = 8
     )
   )
@@ -126,6 +153,8 @@ mod_model_server <- function(id, dataset_clean, recipe) {
       test_prop = input$test_prop %||% 0.2,
       valid_prop = input$valid_prop %||% 0.25,
       models = input$models,
+      balance = input$balance %||% "none",
+      balance_ratio = input$balance_ratio %||% 1,
       seed = input$seed %||% 1
     ))
 
@@ -135,7 +164,11 @@ mod_model_server <- function(id, dataset_clean, recipe) {
     observeEvent(list(dataset_clean(), recipe()), trained(NULL), ignoreInit = TRUE)
     # Test results exist only after the button, and go with the training.
     tested <- reactiveVal(NULL)
-    observeEvent(trained(), tested(NULL), ignoreNULL = FALSE)
+    importances <- reactiveVal(NULL)
+    observeEvent(trained(), {
+      tested(NULL)
+      importances(NULL)
+    }, ignoreNULL = FALSE)
     # Each training gets new slider ids, so that a slider value of a previous
     # training is never read as the threshold of the new models.
     run <- reactiveVal(0)
@@ -211,10 +244,20 @@ mod_model_server <- function(id, dataset_clean, recipe) {
       out <- trained()
       req(out)
       d <- out$distribution
-      data.frame(Partie = d$part, Lignes = d$n,
-                 `Positifs (1)` = d$positives,
-                 `Part de positifs` = paste0(format_number(100 * d$share, 1), " %"),
-                 check.names = FALSE)
+      table <- data.frame(Partie = d$part, Lignes = d$n, `Positifs (1)` = d$positives,
+                          `Part de positifs` = paste0(format_number(100 * d$share, 1), " %"),
+                          check.names = FALSE)
+      b <- out$results[[1]]$balance
+      if (!identical(b$method, "none")) {
+        label <- names(BALANCE_CHOICES)[BALANCE_CHOICES == b$method]
+        balanced <- data.frame(Partie = paste0("Entraînement rééquilibré (", tolower(label), ")"),
+                               Lignes = b$n, `Positifs (1)` = b$positives,
+                               `Part de positifs` = paste0(format_number(100 * b$share, 1), " %",
+                                                           if (b$method == "weights") " des poids"),
+                               check.names = FALSE)
+        table <- rbind(table[1, ], balanced, table[-1, ])
+      }
+      table
     }, align = "lrrr")
 
     output$messages <- renderUI({
@@ -231,6 +274,8 @@ mod_model_server <- function(id, dataset_clean, recipe) {
     output$confusions <- renderUI(confusion_tables(valid_metrics()))
 
     observeEvent(input$evaluate, {
+      # Importances of a previous click never sit next to a new test evaluation.
+      importances(NULL)
       out <- trained()
       if (is.null(out)) {
         showNotification("Entraîner les modèles avant d'évaluer le test.", type = "error")
@@ -245,7 +290,67 @@ mod_model_server <- function(id, dataset_clean, recipe) {
         }
       )
       tested(result)
+      if (is.null(result)) return()
+      size <- input$importance_size
+      reps <- input$importance_reps
+      if (is.null(size) || is.na(size) || size < 100 || is.null(reps) || is.na(reps) ||
+          reps < 1 || reps > 5) {
+        showNotification("Importances : au moins 100 lignes et de 1 à 5 permutations par variable.",
+                         type = "error")
+        return()
+      }
+      started <- proc.time()[["elapsed"]]
+      imp <- tryCatch(
+        withProgress(message = "Calcul des importances", value = 0.3, {
+          compute_importances(out, size = size, n_rep = reps, seed = out$seed)
+        }),
+        error = function(e) {
+          showNotification(paste("Importances impossibles :", conditionMessage(e)),
+                           type = "error", duration = NULL)
+          NULL
+        }
+      )
+      if (!is.null(imp)) imp$elapsed <- proc.time()[["elapsed"]] - started
+      importances(imp)
     })
+
+    output$importance_info <- renderText({
+      imp <- importances()
+      req(imp)
+      sprintf("Calculées sur %d lignes du test, %d permutation%s par variable, en %s s.",
+              imp$n_rows, imp$n_rep, if (imp$n_rep > 1) "s" else "", format_number(imp$elapsed, 1))
+    })
+
+    output$importance_plot_ui <- renderUI({
+      imp <- importances()
+      req(imp)
+      plotOutput(session$ns("importance_plot"), height = paste0(260 * length(imp$permutation), "px"))
+    })
+    output$importance_plot <- renderPlot({
+      imp <- importances()
+      req(imp)
+      importance_plot(imp$permutation)
+    })
+
+    output$logistic_importance <- renderUI({
+      imp <- importances()
+      req(imp, imp$logistic)
+      tagList(
+        h5("Régression logistique : coefficients standardisés et odds ratios"),
+        helpText("|β| × s : valeur absolue du coefficient multipliée par l'écart-type (1/n) de la",
+                 "colonne dans l'entraînement après la recette. Odds ratios et IC à 95 % (Wald) sur le",
+                 "modèle sans pondération ni rééchantillonnage ; ces IC supposent des observations",
+                 "indépendantes (faux si plusieurs individus d'un même groupe). « Séparation probable » :",
+                 "erreur standard de Wald supérieure à 5, coefficient non interprétable (modalité rare ou",
+                 "séparation quasi complète) ; regrouper les modalités rares dans l'onglet Prétraitement."),
+        tableOutput(session$ns("logistic_table"))
+      )
+    })
+    output$logistic_table <- renderTable({
+      imp <- importances()
+      req(imp, imp$logistic)
+      logistic_table(imp$logistic)
+    }, align = "lrrrrrl")
 
     output$test_info <- renderText({
       res <- tested()
@@ -314,6 +419,43 @@ roc_plot <- function(evaluations, title) {
                   y = "Taux de vrais positifs (sensibilité, Recall)", colour = NULL) +
     ggplot2::theme_minimal(base_size = 13) +
     ggplot2::theme(legend.position = "bottom", legend.direction = "vertical")
+}
+
+# Permutation importances, one panel per model, the n_top largest drops of AUC.
+importance_plot <- function(permutation, n_top = 12) {
+  data <- do.call(rbind, lapply(names(permutation), function(type) {
+    p <- utils::head(permutation[[type]], n_top)
+    # One key per model and variable, ordered within each panel.
+    data.frame(model = MODEL_LABELS[[type]], variable = p$variable, importance = p$importance,
+               sd = p$sd, key = factor(paste(type, p$variable, sep = "\u001f"),
+                                       levels = rev(paste(type, p$variable, sep = "\u001f"))))
+  }))
+  data$model <- factor(data$model, levels = unique(data$model))
+  plot <- ggplot2::ggplot(data, ggplot2::aes(x = importance, y = key)) +
+    ggplot2::geom_vline(xintercept = 0, colour = "grey55") +
+    ggplot2::geom_col(fill = "steelblue4", width = 0.7) +
+    ggplot2::facet_wrap(~model, ncol = 1, scales = "free_y") +
+    ggplot2::scale_y_discrete(labels = function(x) sub("^[^\u001f]*\u001f", "", x)) +
+    ggplot2::labs(x = "Baisse d'AUC quand la variable est permutée", y = NULL) +
+    ggplot2::theme_minimal(base_size = 13)
+  if (any(!is.na(data$sd))) {
+    plot <- plot + ggplot2::geom_errorbar(
+      ggplot2::aes(xmin = importance - sd, xmax = importance + sd), orientation = "y", width = 0.3,
+      colour = "grey30", na.rm = TRUE)
+  }
+  plot
+}
+
+# Logistic coefficients for display: the n_top largest standardized ones.
+logistic_table <- function(logistic, n_top = 20) {
+  l <- utils::head(logistic, n_top)
+  number <- function(x) ifelse(is.na(x), "non défini",
+                               formatC(x, format = "g", digits = 3, decimal.mark = ","))
+  data.frame(Terme = l$term, `Coefficient β` = number(l$coefficient),
+             `|β| × s` = format_number(l$standardized, 3), `Odds ratio` = number(l$odds_ratio),
+             `IC 95 % bas` = number(l$lower), `IC 95 % haut` = number(l$upper),
+             Remarque = ifelse(!is.na(l$se) & l$se > SEPARATION_SE, "séparation probable", ""),
+             check.names = FALSE)
 }
 
 # One 2 x 2 confusion table per model.

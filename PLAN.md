@@ -368,7 +368,7 @@ Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
     - mesures de mémoire par session (avant et après réduction) et durées par morceau imprimées dans la demande de fusion.
   - Hors périmètre : importances, rééquilibrage, entraînement asynchrone (plus complexe et plus gourmand en mémoire, pour un usage qui n'est pas le nôtre).
 
-- [ ] **E11b. Importances et rééquilibrage dans l'interface**
+- [x] **E11b. Importances et rééquilibrage dans l'interface**
   - Dépend de : E7, E11a.
   - Objectif : variables les plus importantes, et branchement de E7.
   - Contenu :
