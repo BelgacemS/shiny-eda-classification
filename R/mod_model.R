@@ -76,6 +76,7 @@ mod_model_ui <- function(id) {
       ),
       actionButton(ns("evaluate"), "Évaluer sur le test"),
       textOutput(ns("test_info")),
+      uiOutput(ns("test_messages")),
       tableOutput(ns("test_metrics")),
       plotOutput(ns("roc_test"), height = "380px"),
       uiOutput(ns("test_confusions")),
@@ -360,6 +361,13 @@ mod_model_server <- function(id, dataset_clean, recipe) {
         vapply(names(res$results), function(type) {
           paste(MODEL_LABELS[[type]], format_number(res$results[[type]]$threshold, 3))
         }, character(1)), collapse = " ; "), ".")
+    })
+    output$test_messages <- renderUI({
+      res <- tested()
+      req(res)
+      notes <- unlist(lapply(res$results, `[[`, "message"), use.names = FALSE)
+      if (length(notes) == 0) return(NULL)
+      tags$ul(lapply(notes, tags$li))
     })
     output$test_metrics <- renderTable({
       res <- tested()

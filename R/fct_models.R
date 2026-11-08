@@ -175,7 +175,9 @@ fit_rpart <- function(x, y, weights, ...) {
   list(model = model, levels = levels, messages = character(0))
 }
 
-# Probability of class 1 for each row of newx.
+# Probability of class 1 for each row of newx. The only attribute is
+# non_estimable: rows whose logistic prediction is not estimable (integer(0)
+# for the forest and the tree, and for a logistic regression of full rank).
 predict_proba <- function(model, newx) {
   stopifnot(inherits(model, "fitted_model"))
   newx <- as.data.frame(newx)
@@ -200,14 +202,34 @@ predict_proba <- function(model, newx) {
     newx[[v]] <- factor(as.character(newx[[v]]), levels = model$levels[[v]])
   }
   if (model$type == "glm") {
-    return(unname(stats::predict(model$fit, newdata = newx, type = "response")))
+    # On a rank-deficient fit, a new row outside the span of the training
+    # design is not estimable: its prediction depends on the arbitrary pivot of
+    # the QR decomposition. predict.lm(rankdeficient = "non-estim") gives the
+    # same linear predictor as predict.glm() without the warning and lists
+    # those rows; predict.glm() does not pass rankdeficient on.
+    link <- stats::predict.lm(model$fit, newdata = newx, rankdeficient = "non-estim")
+    rows <- attr(link, "non-estim")
+    return(structure(model$fit$family$linkinv(as.vector(link)),
+                     non_estimable = if (is.null(rows)) integer(0) else as.integer(unname(rows))))
   }
-  if (model$type == "rpart") {
-    return(unname(stats::predict(model$fit, newdata = newx, type = "prob")[, "1"]))
+  prob <- if (model$type == "rpart") {
+    stats::predict(model$fit, newdata = newx, type = "prob")[, "1"]
+  } else {
+    # A fixed seed: predict.ranger() otherwise draws one from the global random
+    # state, shared by all sessions of the server.
+    stats::predict(model$fit, data = newx, num.threads = 1, seed = 1)$predictions[, "1"]
   }
-  # A fixed seed: predict.ranger() otherwise draws one from the global random
-  # state, shared by all sessions of the server.
-  unname(stats::predict(model$fit, data = newx, num.threads = 1, seed = 1)$predictions[, "1"])
+  structure(as.vector(prob), non_estimable = integer(0))
+}
+
+# Message on the logistic predictions that are not estimable, NULL when none.
+non_estimable_message <- function(prob, part) {
+  n <- length(attr(prob, "non_estimable"))
+  if (n == 0) return(NULL)
+  sprintf(paste0("régression logistique : %d ligne%s %s sur %d non estimable%s : leur probabilité ",
+                 "dépend d'un choix arbitraire du calcul (coefficients non estimables). Regrouper ",
+                 "les modalités rares ou retirer les variables redondantes."),
+          n, if (n > 1) "s" else "", part, length(prob), if (n > 1) "s" else "")
 }
 
 # --- Pipeline of the modelling tab ------------------------------------------
@@ -286,7 +308,8 @@ train_pipeline <- function(dataset, recipe, settings) {
                     share = sum(w * balanced$y) / sum(w))
     list(model = model, recipe = fitted, prob_valid = prob, threshold = threshold, balance = balance,
          confusion = at_threshold$confusion, metrics = at_threshold$metrics, roc = roc,
-         messages = unique(c(notes, fitted$messages, model$messages)))
+         messages = unique(c(notes, fitted$messages, model$messages,
+                             non_estimable_message(prob, "de la validation"))))
   })
 
   # Leak alert on the original predictors, before the recipe and without weights.
@@ -323,7 +346,9 @@ evaluate_test <- function(trained, thresholds) {
     prob <- predict_proba(r$model, apply_recipe(r$recipe, trained$split$test$x))
     at_threshold <- threshold_metrics(y, prob, threshold)
     list(threshold = threshold, confusion = at_threshold$confusion,
-         metrics = at_threshold$metrics, roc = roc_curve(y, prob))
+         metrics = at_threshold$metrics, roc = roc_curve(y, prob),
+         non_estimable = length(attr(prob, "non_estimable")),
+         message = non_estimable_message(prob, "du test"))
   })
   list(results = results, naive = naive_metrics(y))
 }

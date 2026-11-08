@@ -351,7 +351,8 @@ test_that("the reduced QR keeps predictions and Wald intervals of the full logis
     newdata <- new
     for (v in names(model$levels)) newdata[[v]] <- factor(newdata[[v]], levels = model$levels[[v]])
     expected <- unname(suppressWarnings(stats::predict(reference, newdata = newdata, type = "response")))
-    expect_identical(suppressWarnings(predict_proba(model, new)), expected)
+    # Values only: predict.glm() attaches R's "non-estim" attribute, predict_proba() its own.
+    expect_identical(as.vector(predict_proba(model, new)), as.vector(expected))
     expect_equal(stats::confint.default(model$fit), stats::confint.default(reference))
   }
 })
@@ -558,4 +559,99 @@ test_that("a leaking predictor raises a warning notification after training", {
                       models = "rpart", seed = 1, train = 1)
   })
   expect_match(notes, "^warning Liaison quasi parfaite.*copy", all = FALSE)
+})
+
+# --- E11c: non-estimable logistic predictions ---------------------------------------
+
+nested_data <- function(n = 400, seed = 40) {
+  withr::local_seed(seed)
+  x <- data.frame(a = rnorm(n), f = factor(sample(c("p", "q", "r"), n, TRUE)))
+  # g is nested in f (g = "P" exactly when f = "p"): one coefficient is not estimable.
+  x$g <- factor(ifelse(x$f == "p", "P", "autre"))
+  list(x = x, y = stats::rbinom(n, 1, stats::plogis(x$a)))
+}
+
+test_that("a full-rank logistic regression predicts as predict.glm, with no non-estimable row", {
+  d <- simulated(seed = 41)
+  model <- fit_model("glm", d$x, d$y)
+  prob <- predict_proba(model, d$x)
+  newdata <- d$x
+  newdata$g <- factor(newdata$g, levels = model$levels$g)
+  expected <- stats::predict(model$fit, newdata = newdata, type = "response")
+  expect_identical(as.vector(prob), as.vector(expected))
+  expect_identical(attr(prob, "non_estimable"), integer(0))
+  expect_identical(names(attributes(prob)), "non_estimable")
+})
+
+test_that("non-estimable rows are listed exactly, without warning and with the predict.glm values", {
+  d <- nested_data()
+  for (w in list(NULL, stats::runif(400, 0.2, 3))) {
+    model <- fit_model("glm", d$x, d$y, weights = w)
+    expect_true(anyNA(stats::coef(model$fit)))
+    # Rows 1 and 2 follow the nesting (estimable); rows 3 and 4 break it.
+    new <- data.frame(a = c(0, 0.5, 1, 0),
+                      f = factor(c("p", "q", "r", "p"), levels = c("p", "q", "r")),
+                      g = factor(c("P", "autre", "P", "autre"), levels = c("autre", "P")))
+    expect_silent(prob <- predict_proba(model, new))
+    expect_identical(attr(prob, "non_estimable"), 3:4)
+    newdata <- new
+    for (v in names(model$levels)) newdata[[v]] <- factor(as.character(newdata[[v]]), levels = model$levels[[v]])
+    expected <- suppressWarnings(stats::predict(model$fit, newdata = newdata, type = "response"))
+    expect_identical(as.vector(prob), as.vector(expected))
+  }
+})
+
+test_that("the forest and the tree return an empty non_estimable attribute", {
+  d <- nested_data()
+  for (type in c("ranger", "rpart")) {
+    prob <- predict_proba(fit_model(type, d$x, d$y), d$x[1:5, ])
+    expect_identical(attr(prob, "non_estimable"), integer(0), info = type)
+    expect_identical(names(attributes(prob)), "non_estimable", info = type)
+  }
+})
+
+test_that("non-estimable validation rows are reported after training, test rows after the button", {
+  withr::local_seed(42)
+  n <- 600
+  f <- factor(sample(c("p", "q", "r"), n, TRUE))
+  data <- data.frame(y = factor(ifelse(stats::rbinom(n, 1, 0.35) == 1, "oui", "non")),
+                     a = rnorm(n), f = f, g = factor(ifelse(f == "p", "P", "autre")))
+  # A few rows break the nesting of g in f. When none of them lands in the
+  # training set, the fit is rank-deficient and these rows are non-estimable.
+  broken <- c(3, 7)
+  data$g[broken] <- ifelse(data$g[broken] == "P", "autre", "P")
+  ds <- make_dataset(data, c(y = "quali", a = "quanti", f = "quali", g = "quali"))
+  settings <- function(seed) list(target = "y", positive = "oui", predictors = c("a", "f", "g"),
+                                  sample_size = n, group = NULL, mode = "stratified", test_prop = 0.2,
+                                  valid_prop = 0.25, models = "glm", seed = seed)
+  found <- NULL
+  for (seed in 1:200) {
+    out <- train_pipeline(ds, default_recipe(), settings(seed))
+    prob_test <- predict_proba(out$results$glm$model,
+                               apply_recipe(out$results$glm$recipe, out$split$test$x))
+    n_valid <- length(attr(out$results$glm$prob_valid, "non_estimable"))
+    if (n_valid > 0 && length(attr(prob_test, "non_estimable")) > 0) {
+      found <- seed
+      break
+    }
+  }
+  expect_false(is.null(found))
+  # The pipeline reports the validation count, and only when it is positive.
+  expect_match(out$results$glm$messages, sprintf("%d lignes? de la validation", n_valid), all = FALSE)
+  clean <- train_pipeline(make_dataset(transform(data, g = factor(ifelse(f == "p", "P", "autre"))),
+                                       ds$var_types), default_recipe(), settings(found))
+  expect_false(any(grepl("de la validation", clean$results$glm$messages)))
+  shiny::testServer(mod_model_server,
+                    args = list(dataset_clean = shiny::reactive(ds),
+                                recipe = shiny::reactive(default_recipe())), {
+    session$setInputs(target = "y", positive = "oui", predictors = c("a", "f", "g"), sample_size = n,
+                      group = NO_GROUP, mode = "stratified", test_prop = 0.2, valid_prop = 0.25,
+                      models = "glm", seed = found, train = 1)
+    expect_match(output$messages$html, "de la validation")
+    expect_null(tested())
+    session$setInputs(evaluate = 1)
+    res <- tested()$results$glm
+    expect_equal(res$non_estimable, length(attr(prob_test, "non_estimable")))
+    expect_match(output$test_messages$html, "du test")
+  })
 })

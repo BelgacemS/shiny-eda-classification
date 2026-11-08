@@ -387,7 +387,7 @@ Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
     - temps de calcul des importances sur BAAC mesuré dans l'app déployée.
   - Hors périmètre : modèles finaux BAAC.
 
-- [ ] **E11c. Prédictions non estimables de la logistique, mémoire du J5**
+- [x] **E11c. Prédictions non estimables de la logistique, mémoire du J5**
   - Dépend de : E11b.
   - Objectif : rendre visibles les prédictions de la logistique qui dépendent d'un choix arbitraire, et mettre à jour les risques avec les mesures du J5.
   - Contenu :
@@ -513,7 +513,7 @@ On ne coupe jamais : les exigences de l'annexe A (dont les trois méthodes de r�
 |---|---|---|
 | Préparation BAAC plus longue que prévu | E3 pas terminée à la fin du jalon 1, ou E4 non fusionnée au point de décision | plan B (annexe D) |
 | Heures actives de l'offre gratuite épuisées en fin de projet | consommation relevée à chaque redéploiement | tests surtout en local, offre payante ponctuelle ou Posit Connect Cloud |
-| Mémoire du serveur dépassée (≈ 1 Go) | mesures en E1, au redéploiement J3, au redéploiement J4 (pic de 832,5 Mio après deux sessions entraînées), par session en E11a, puis au redéploiement J5 | réduire l'échantillon BAAC, `.rds` chargés une fois, éviter les copies de données dans les réactifs, plafond de colonnes, entraînement limité en taille |
+| Mémoire du serveur dépassée (≈ 1 Go) | mesures en E1, au redéploiement J3, au redéploiement J4 (pic de 832,5 Mio après deux sessions entraînées), par session en E11a, au redéploiement J5 (921,4 Mio, voir la ligne suivante) | réduire l'échantillon BAAC, `.rds` chargés une fois, éviter les copies de données dans les réactifs, plafond de colonnes, entraînement limité en taille |
 | Session qui plante sur un fichier inattendu | tests de robustesse en E2, E6a et E10b | `tryCatch` et messages, type id au-delà de 50 modalités, colonnes constantes retirées |
 | `Hmisc` ou `UsingR` ne s'installent pas sur le serveur | premier déploiement en E1 | recoder les deux graphiques en `ggplot2` |
 | Variance en 1/(n − 1) par inadvertance (`var`, `sd`, `cov`) | test des 48 âges (E8), décomposition de la variance (E9) | fonctions de `fct_stats_base.R` |
@@ -521,7 +521,7 @@ On ne coupe jamais : les exigences de l'annexe A (dont les trois méthodes de r�
 | Modalité absente de l'entraînement : erreur de `predict.glm` | test dédié en E6a | modalités inconnues envoyées dans « Autre » ou, à défaut, dans la modalité la plus fréquente, sur toutes les colonnes quali |
 | Modalité positive mal codée (`glm` modélise le second niveau) | test du signe de l'effet en E10b | recodage explicite de la cible en 0/1 |
 | Temps de calcul dans l'app (forêt et permutations) | mesure en E10b, au redéploiement J4 (23 à 25 s sur le serveur contre 9 s en local), par morceau en E11a, en E11b sur l'app déployée | moins d'arbres dans l'app, taille d'échantillon par défaut réduite si besoin (E11a), importances sur un sous-échantillon après le bouton du test |
-| Plusieurs sessions en même temps : un seul processus R par instance (`scheduler.max.processes = 1` dans `rsconnect::showProperties()`, relu le 8 novembre), donc mémoire gardée par session cumulée et entraînements servis l'un après l'autre | redéploiement J4 (environ 300 Mio par session entraînée), mesure par session en E11a, redéploiement J5 avec deux sessions | alléger l'état gardé par session (E11a) ; usage visé : une personne à la fois (correction, recette E16), écrit dans le README ; pas d'entraînement asynchrone |
+| Plusieurs sessions en même temps : un seul processus R par instance (`scheduler.max.processes = 1` dans `rsconnect::showProperties()`, relu le 8 novembre), donc mémoire gardée par session cumulée et entraînements servis l'un après l'autre | redéploiement J4 (environ 300 Mio par session entraînée), mesure par session en E11a ; redéploiement J5 : deux sessions successives servies par le même processus R, chacune avec deux entraînements et deux calculs d'importances, atteignent 921,4 Mio, le processus ne rendant pas sa mémoire entre les deux ; deux sessions simultanées non mesurées, elles dépasseraient probablement 1 024 Mio | alléger l'état gardé par session (E11a) ; usage visé : une personne à la fois (correction, recette E16), écrit dans le README ; pas d'entraînement asynchrone |
 | Run final trop lourd pour 8 Go de RAM | run sur 10 % en E12a | sous-échantillonner l'entraînement par accident, ou passer par Colab |
 | Deux applications déployées sous deux URL | premier redéploiement depuis le second poste, s'il a lieu | `deploy.R` versionné, même nom d'application, `forceUpdate = TRUE` |
 | Conflits Git entre branches | fusions qui échouent | dépendances respectées (« Dépend de »), fichiers disjoints entre étapes menées en parallèle, `app.R` modifié seulement en E1, E2 et E13 |
