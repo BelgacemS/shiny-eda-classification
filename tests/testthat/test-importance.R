@@ -425,3 +425,48 @@ test_that("a numeric column on a tiny scale is not flagged as separated", {
   expect_gt(li$se[li$term == "v"], SEPARATION_SE)  # the se follows the scale of v
   expect_false(li$separation[li$term == "v"])
 })
+
+delta_fallback_model <- function() {
+  withr::local_seed(36)
+  n <- 600
+  g <- factor(c(rep("rare", 3), sample(c("a", "b"), n - 3, TRUE, prob = c(0.7, 0.3))))
+  x <- data.frame(g = g, v = rnorm(n))
+  y <- c(0, 0, 0, stats::rbinom(n - 3, 1, 0.3))
+  list(x = x, model = fit_model("glm", x[4:n, ], y[4:n]))
+}
+
+# design_matrix() maps a level lost by resampling instead of dropping its rows.
+test_that("the design matrix keeps the rows of a level lost by resampling, mapped to the fallback", {
+  f <- delta_fallback_model()
+  design <- design_matrix(f$model, f$x)
+  expect_equal(nrow(design), nrow(f$x))
+  # "a" is the fallback and the reference: the column gb is 1 only for "b".
+  expect_equal(unname(design[, "gb"]), as.numeric(f$x$g == "b"))
+  li <- logistic_importance(f$model, f$x)
+  p <- mean(f$x$g == "b")
+  expect_equal(li$sd[li$term == "gb"], sqrt(p * (1 - p)))
+})
+
+# New data that do not declare the fallback level.
+test_that("the fallback works when the new data do not declare the fallback level", {
+  f <- delta_fallback_model()
+  only_rare <- data.frame(g = factor("rare"), v = 0.3)
+  as_a <- data.frame(g = factor("a"), v = 0.3)
+  expect_equal(predict_proba(f$model, only_rare), predict_proba(f$model, as_a))
+})
+
+# The number of permutations must be an integer.
+test_that("a non-integer number of permutations is refused", {
+  ds <- pipeline_frame()
+  shiny::testServer(mod_model_server,
+                    args = list(dataset_clean = shiny::reactive(ds),
+                                recipe = shiny::reactive(default_recipe())), {
+    session$setInputs(target = "y", positive = "oui", predictors = c("x", "noise", "g"),
+                      sample_size = 900, group = NO_GROUP, mode = "stratified", test_prop = 0.2,
+                      valid_prop = 0.25, models = "glm", balance = "none", balance_ratio = 1,
+                      seed = 1, importance_size = 150, importance_reps = 1.5, train = 1)
+    session$setInputs(evaluate = 1)
+    expect_false(is.null(tested()))
+    expect_null(importances())
+  })
+})

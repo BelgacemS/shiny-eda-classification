@@ -341,9 +341,9 @@ mod_model_server <- function(id, dataset_clean, recipe) {
                  "colonne dans l'entraînement après la recette. Odds ratios et IC à 95 % (Wald) sur le",
                  "modèle sans pondération ni rééchantillonnage ; ces IC supposent des observations",
                  "indépendantes (faux si plusieurs individus d'un même groupe). « Séparation probable » :",
-                 "indicatrice dont l'erreur standard de Wald dépasse 5 dans le modèle classé, coefficient",
-                 "non interprétable (modalité rare, ou séparée par le rééchantillonnage) ; regrouper les",
-                 "modalités rares dans l'onglet Prétraitement."),
+                 "indicatrice dont l'erreur standard de Wald dépasse 5 dans le modèle entraîné (celui des",
+                 "coefficients β), coefficient non interprétable (modalité rare, ou séparée par le",
+                 "rééchantillonnage) ; regrouper les modalités rares dans l'onglet Prétraitement."),
         tableOutput(session$ns("logistic_table"))
       )
     })
