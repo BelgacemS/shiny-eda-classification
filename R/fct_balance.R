@@ -64,6 +64,8 @@ balance_train <- function(split, method = "none", ratio = 1, seed = 1) {
     train$x <- train$x[rows, , drop = FALSE]
     rownames(train$x) <- NULL
     train$y <- train$y[rows]
+    # The original row indices of split_data() follow the resampling.
+    if (!is.null(train$rows)) train$rows <- train$rows[rows]
   }
   split$train <- train
   split

@@ -56,6 +56,14 @@ test_that("the class ratio is reached after resampling", {
   expect_equal(class_ratio(balance_train(split, "over")$train$y), 1)
 })
 
+test_that("the original row indices follow the resampling", {
+  split <- toy_split()
+  split$train$rows <- 101:200
+  out <- balance_train(split, "under", ratio = 0.5)
+  expect_equal(length(out$train$rows), length(out$train$y))
+  expect_equal(out$train$rows - 100L, out$train$x$a)
+})
+
 test_that("weights balance the total weight of the classes", {
   out <- balance_train(toy_split(), "weights")
   w <- out$train$weights

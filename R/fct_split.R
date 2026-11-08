@@ -16,13 +16,18 @@
 #   values is cut; attr "crossing_groups" counts such groups (0 for BAAC, where
 #   the year is the same for every user of an accident) so that the interface
 #   can warn.
+# In the stratified mode, groups are ignored: choose the grouped mode to keep
+# groups together. Every part must be non-empty, and the training and
+# validation sets must contain both classes (the threshold is chosen on the
+# validation set); otherwise the split stops with a message.
 
 SPLIT_MODES <- c("stratified", "grouped", "variable")
 
 split_data <- function(x, y, mode = "stratified", test_prop = 0.2, valid_prop = 0.2,
                        groups = NULL, by = NULL, test_values = NULL, seed = 1) {
   check_split_inputs(x, y, mode, test_prop, valid_prop, groups, by, test_values)
-  units <- split_units(y, groups, grouped = mode == "grouped" || !is.null(groups))
+  grouped <- mode == "grouped" || (mode == "variable" && !is.null(groups))
+  units <- split_units(y, if (grouped) groups, grouped = grouped)
   with_seed(seed, {
     if (mode == "variable") {
       test_rows <- which(by %in% test_values)
@@ -42,6 +47,7 @@ split_data <- function(x, y, mode = "stratified", test_prop = 0.2, valid_prop = 
     list(x = x[rows, , drop = FALSE], y = y[rows], rows = rows)
   }
   out <- list(train = part(train_rows), valid = part(valid_rows), test = part(test_rows))
+  check_split_parts(out)
   if (mode == "variable" && !is.null(groups)) {
     unit <- attr(units, "unit_of_row")
     attr(out, "crossing_groups") <- length(intersect(unit[test_rows], unit[-test_rows]))
@@ -67,7 +73,8 @@ split_units <- function(y, groups, grouped) {
 }
 
 # Draws prop of the given units within each stratum (positive or not); rounded
-# per stratum, so a stratum of one unit stays out of the drawn part.
+# per stratum with round(), which rounds half to even: with prop = 0.5, strata
+# of 1, 3 and 5 units give 0, 2 and 2 draws.
 draw_units <- function(units, candidates, prop) {
   drawn <- integer(0)
   for (stratum in c(TRUE, FALSE)) {
@@ -89,8 +96,8 @@ check_split_inputs <- function(x, y, mode, test_prop, valid_prop, groups, by, te
     stop("la cible doit valoir 0 ou 1, sans valeur manquante.", call. = FALSE)
   }
   for (p in c(test_prop, valid_prop)) {
-    if (!is.numeric(p) || length(p) != 1 || is.na(p) || p < 0 || p >= 1) {
-      stop("les proportions doivent être dans [0, 1[.", call. = FALSE)
+    if (!is.numeric(p) || length(p) != 1 || is.na(p) || p <= 0 || p >= 1) {
+      stop("les proportions doivent être dans ]0, 1[.", call. = FALSE)
     }
   }
   if (mode == "grouped" && (is.null(groups) || length(groups) != length(y))) {
@@ -102,12 +109,36 @@ check_split_inputs <- function(x, y, mode, test_prop, valid_prop, groups, by, te
   if (mode == "variable" && (is.null(by) || length(by) != length(y) || length(test_values) == 0)) {
     stop("le mode par variable demande une colonne et des valeurs pour le test.", call. = FALSE)
   }
+  if (mode == "variable" && anyNA(by)) {
+    stop("la colonne du découpage par variable a des valeurs manquantes.", call. = FALSE)
+  }
+}
+
+check_split_parts <- function(split) {
+  labels <- c(train = "l'entraînement", valid = "la validation", test = "le test")
+  for (p in names(split)) {
+    if (length(split[[p]]$y) == 0) {
+      stop(labels[[p]], " est vide : augmenter l'échantillon ou changer les proportions.", call. = FALSE)
+    }
+  }
+  for (p in c("train", "valid")) {
+    if (length(unique(split[[p]]$y)) < 2) {
+      stop(labels[[p]], " ne contient qu'une classe de la cible : augmenter l'échantillon.",
+           call. = FALSE)
+    }
+  }
 }
 
 # Row indices of a sample of about `size` rows: rows drawn at random, or whole
 # groups drawn at random until `size` rows are reached, so that a group is never
 # cut. Returns every row when size >= n.
 sample_rows <- function(n, size, groups = NULL, seed = 1) {
+  if (!is.numeric(size) || length(size) != 1 || is.na(size) || size < 1) {
+    stop("la taille de l'échantillon doit être un nombre supérieur ou égal à 1.", call. = FALSE)
+  }
+  if (!is.null(groups) && length(groups) != n) {
+    stop("un identifiant de groupe est attendu par ligne.", call. = FALSE)
+  }
   if (size >= n) {
     return(seq_len(n))
   }

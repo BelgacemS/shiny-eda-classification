@@ -4,6 +4,9 @@
 # Confusion counts of a 0/1 target and scores: named integer vector
 # c(tp, fp, fn, tn) with class "confusion".
 confusion <- function(y, score, threshold = 0.5) {
+  if (!is.numeric(threshold) || length(threshold) != 1 || is.na(threshold)) {
+    stop("le seuil doit être un nombre.", call. = FALSE)
+  }
   if (length(y) != length(score)) {
     stop("y et les scores n'ont pas la même longueur.", call. = FALSE)
   }
