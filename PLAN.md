@@ -422,7 +422,7 @@ Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
     - `final_models.rds` de quelques Mo au plus.
   - Hors périmètre : rédaction de l'onglet 5.
 
-- [ ] **Redéploiement J5** : après fusion de E11b, chaîne complète de l'onglet 4 (trois modèles, ROC, seuils, importances, rééquilibrage) sur l'URL publique, avec BAAC et `students.csv` ; temps du clic « Entraîner » sur 20 000 lignes BAAC (critère de 30 s, ou celui fixé en E11a), temps des importances, et mémoire de l'instance après deux sessions entraînées, comparée aux 832,5 Mio du redéploiement J4.
+- [ ] **Redéploiement J5** : après fusion de E11b, chaîne complète de l'onglet 4 (trois modèles, ROC, seuils, importances, rééquilibrage) sur l'URL publique, avec BAAC et `students.csv` ; temps du clic « Entraîner » sur 20 000 lignes BAAC (critère de 30 s, ou celui fixé en E11a), temps des importances, et mémoire de l'instance après deux sessions entraînées, comparée aux 832,5 Mio du redéploiement J4 ; limites de l'offre gratuite du README relues avec leur commande ou leur source.
 
 ### Jalon 6 : étude de cas rédigée, app complète
 
@@ -486,7 +486,7 @@ On ne coupe jamais : les exigences de l'annexe A (dont les trois méthodes de r�
 | Modalité absente de l'entraînement : erreur de `predict.glm` | test dédié en E6a | modalités inconnues envoyées dans « Autre » ou, à défaut, dans la modalité la plus fréquente, sur toutes les colonnes quali |
 | Modalité positive mal codée (`glm` modélise le second niveau) | test du signe de l'effet en E10b | recodage explicite de la cible en 0/1 |
 | Temps de calcul dans l'app (forêt et permutations) | mesure en E10b, au redéploiement J4 (23 à 25 s sur le serveur contre 9 s en local), par morceau en E11a, en E11b sur l'app déployée | moins d'arbres dans l'app, taille d'échantillon par défaut réduite si besoin (E11a), importances sur un sous-échantillon après le bouton du test |
-| Plusieurs sessions en même temps : un seul processus R par instance (`scheduler.max.processes = 1` dans `rsconnect::showProperties()`), donc mémoire gardée par session cumulée et entraînements servis l'un après l'autre | redéploiement J4 (environ 300 Mio par session entraînée), mesure par session en E11a, redéploiement J5 avec deux sessions | alléger l'état gardé par session (E11a) ; usage visé : une personne à la fois (correction, recette E16), écrit dans le README ; pas d'entraînement asynchrone |
+| Plusieurs sessions en même temps : un seul processus R par instance (`scheduler.max.processes = 1` dans `rsconnect::showProperties()`, relu le 8 novembre), donc mémoire gardée par session cumulée et entraînements servis l'un après l'autre | redéploiement J4 (environ 300 Mio par session entraînée), mesure par session en E11a, redéploiement J5 avec deux sessions | alléger l'état gardé par session (E11a) ; usage visé : une personne à la fois (correction, recette E16), écrit dans le README ; pas d'entraînement asynchrone |
 | Run final trop lourd pour 8 Go de RAM | run sur 10 % en E12a | sous-échantillonner l'entraînement par accident, ou passer par Colab |
 | Deux applications déployées sous deux URL | premier redéploiement depuis le second poste, s'il a lieu | `deploy.R` versionné, même nom d'application, `forceUpdate = TRUE` |
 | Conflits Git entre branches | fusions qui échouent | dépendances respectées (« Dépend de »), fichiers disjoints entre étapes menées en parallèle, `app.R` modifié seulement en E1, E2 et E13 |
