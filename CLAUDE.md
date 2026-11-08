@@ -13,6 +13,9 @@ Projet de cours à deux (un poste macOS, un poste Windows). La feuille de route 
 - Code multiplateforme : chemins relatifs construits avec `file.path()`, encodage toujours explicite à la lecture d'un fichier.
 - Aucune donnée dans Git : `data/*`, `data-raw/raw/`, `data-raw/out/` et les CSV du cours (`tests/testthat/fixtures/course/`) sont ignorés.
 - Une étape qui touche l'interface est aussi vérifiée dans un navigateur (Chrome sans fenêtre piloté par chromote, installé hors du projet), en plus de `testServer`, qui ne simule pas l'aller-retour avec le navigateur.
+- Un réglage ou une limite de la plateforme écrit dans le README ou le plan (délai d'inactivité, mémoire, heures actives, taille du bundle) porte sa date et la commande qui le prouve, et se relit à chaque redéploiement : le délai d'inactivité, lu une seule fois en E1, est resté faux pendant trois redéploiements.
+- La mémoire d'un objet R se mesure en RAM, par différence de `gc()` ; jamais avec `object.size()` ni avec la taille sérialisée, qui comptent deux fois les colonnes partagées entre objets.
+- Un chiffre cité dans une demande de fusion est accompagné de la commande qui le produit, relancée juste avant d'ouvrir la demande.
 
 ## Commandes
 
