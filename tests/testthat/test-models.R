@@ -189,7 +189,121 @@ test_that("a file under 50 rows can be modelled with its default sample size", {
   ds <- make_dataset(data.frame(y = factor(rep(c("a", "b"), 24)), x = 1:48),
                      c(y = "quali", x = "quanti"))
   s <- list(target = "y", positive = "b", predictors = "x", sample_size = 48, group = NULL,
-            mode = "stratified", models = "glm")
+            mode = "stratified", models = "glm", seed = 1)
   expect_null(settings_problem(s, ds))
   expect_match(settings_problem(utils::modifyList(s, list(sample_size = 20)), ds), "48")
+})
+
+# --- Pipeline properties (tests added after mutation testing) ------------------
+
+pipeline_data <- function(n_acc = 300, seed = 12) {
+  withr::local_seed(seed)
+  acc <- rep(seq_len(n_acc), each = 3)
+  n <- length(acc)
+  x <- rnorm(n)
+  data <- data.frame(
+    y = factor(ifelse(stats::rbinom(n, 1, stats::plogis(2 * x - 1)) == 1, "oui", "non")),
+    x = x, z = rnorm(n, 100, 10), g = factor(sample(c("a", "b", "c"), n, TRUE)),
+    acc = as.character(acc), year = rep(sample(2019:2024, n_acc, TRUE), each = 3))
+  make_dataset(data, c(y = "quali", x = "quanti", z = "quanti", g = "quali", acc = "id",
+                       year = "quanti"))
+}
+
+pipeline_settings <- function(...) {
+  utils::modifyList(list(target = "y", positive = "oui", predictors = c("x", "z", "g"),
+                         sample_size = 10000, group = "acc", mode = "grouped", test_prop = 0.2,
+                         valid_prop = 0.25, models = c("glm", "ranger"), seed = 1), list(...))
+}
+
+test_that("the recipe sees the training set only, and the metrics use the validation set", {
+  ds <- pipeline_data()
+  recipe <- utils::modifyList(default_recipe(), list(
+    impute = list(quanti = "median", quali = "mode"), scale = list(method = "standard"),
+    dummy = list(method = "k_minus_1")))
+  out <- train_pipeline(ds, recipe, pipeline_settings())
+  types <- ds$var_types[c("x", "z", "g")]
+  for (type in names(out$results)) {
+    r <- out$results[[type]]
+    # Recipe parameters equal those learned on the training rows alone.
+    expect_equal(r$recipe$params, fit_recipe(recipe, out$split$train$x, types)$params)
+    # Validation probabilities and confusion matrix are those of the validation set.
+    expect_equal(r$prob_valid, predict_proba(r$model, apply_recipe(r$recipe, out$split$valid$x)))
+    expect_equal(r$confusion, confusion(out$split$valid$y, r$prob_valid, 0.5))
+  }
+})
+
+test_that("one-hot is replaced by k - 1 dummies for the logistic regression only", {
+  ds <- pipeline_data()
+  recipe <- utils::modifyList(default_recipe(), list(dummy = list(method = "one_hot")))
+  out <- train_pipeline(ds, recipe, pipeline_settings())
+  expect_equal(out$results$glm$recipe$recipe$dummy$method, "k_minus_1")
+  expect_equal(out$results$ranger$recipe$recipe$dummy$method, "one_hot")
+  expect_false(anyNA(stats::coef(out$results$glm$model$fit)))
+  expect_length(grep("^g_", out$results$glm$model$columns), 2L)
+  expect_length(grep("^g_", out$results$ranger$model$columns), 3L)
+})
+
+test_that("rows without target are removed and the target is never a predictor", {
+  ds <- pipeline_data()
+  ds$data$y[c(1, 5, 9)] <- NA
+  out <- train_pipeline(ds, default_recipe(), pipeline_settings(predictors = c("x", "y", "g")))
+  expect_match(out$messages, "3 lignes sans cible", all = FALSE)
+  expect_equal(sum(out$distribution$n), nrow(ds$data) - 3L)
+  expect_false("y" %in% names(out$split$train$x))
+})
+
+test_that("the same seed gives the same models, another seed other ones", {
+  ds <- pipeline_data()
+  a <- train_pipeline(ds, default_recipe(), pipeline_settings(models = "ranger"))
+  b <- train_pipeline(ds, default_recipe(), pipeline_settings(models = "ranger"))
+  c <- train_pipeline(ds, default_recipe(), pipeline_settings(models = "ranger", seed = 2))
+  expect_identical(a$results$ranger$prob_valid, b$results$ranger$prob_valid)
+  expect_false(identical(a$split$valid$rows, c$split$valid$rows))
+})
+
+test_that("outlier removal keeps the target aligned with the remaining training rows", {
+  ds <- pipeline_data()
+  ds$data$z[1:6] <- 1e4
+  recipe <- utils::modifyList(default_recipe(), list(outliers = list(action = "remove")))
+  out <- train_pipeline(ds, recipe, pipeline_settings(models = "glm"))
+  r <- out$results$glm
+  expect_lt(nrow(r$recipe$train), length(out$split$train$y))
+  expect_equal(length(r$model$fit$y), nrow(r$recipe$train))
+  expect_equal(unname(r$model$fit$y), out$split$train$y[r$recipe$kept_rows])
+})
+
+test_that("a sample by group keeps every group whole", {
+  ds <- pipeline_data()
+  # 301 rows asked, each accident has 3 rows: a grouped sample takes 101 whole
+  # accidents (303 rows); a sample by rows would cut some accidents.
+  out <- train_pipeline(ds, default_recipe(), pipeline_settings(sample_size = 301, models = "glm"))
+  expect_length(out$sample_rows, 303L)
+  expect_true(all(table(ds$data$acc[out$sample_rows]) == 3))
+})
+
+test_that("a stratified split with a group id is refused, as it would cut groups", {
+  ds <- pipeline_data()
+  s <- pipeline_settings(mode = "stratified")
+  expect_match(settings_problem(s, ds), "groupé")
+  expect_null(settings_problem(pipeline_settings(), ds))
+  expect_match(settings_problem(pipeline_settings(positive = "peut-être"), ds), "n'existe pas")
+})
+
+test_that("a predictor named weights is not taken as glm weights", {
+  withr::local_seed(13)
+  n <- 300
+  x <- data.frame(x = rnorm(n), weights = runif(n, 10, 20))
+  y <- stats::rbinom(n, 1, stats::plogis(x$x))
+  model <- fit_model("glm", x, y)
+  expect_equal(unname(model$fit$prior.weights), rep(1, n))
+  expect_equal(model$fit$family$family, "binomial")
+  expect_true("weights" %in% names(stats::coef(model$fit)))
+  w <- observation_weights(y)
+  expect_equal(unname(fit_model("glm", x, y, weights = w)$fit$prior.weights), w)
+})
+
+test_that("no informative column and missing values at prediction give French messages", {
+  expect_error(fit_model("ranger", data.frame(k = rep(1, 20)), rep(0:1, 10)), "aucune variable")
+  model <- fit_model("glm", data.frame(x = 1:20 + rnorm(20)), rep(0:1, 10))
+  expect_error(predict_proba(model, data.frame(x = c(1, NA))), "imputation")
 })
