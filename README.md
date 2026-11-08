@@ -44,7 +44,7 @@ Deployment to shinyapps.io runs from a clean `main` branch. The account must fir
 Rscript deploy.R
 ```
 
-Free plan limits that apply to this app (checked on 2026-11-06):
+Free plan limits that apply to this app, each with its date and source:
 
 - memory: `large` instance, 1024 MB (`rsconnect::showProperties()` and shinyapps.io guide, checked on 2026-11-08);
 - bundle size: 1 GB on the Free and Starter plans (shinyapps.io guide, applications page, checked on 2026-11-08);
