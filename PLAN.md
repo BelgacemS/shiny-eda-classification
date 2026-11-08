@@ -375,7 +375,10 @@ Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
     - `perm_importance(predict_fn, test_raw, y, vars, n_rep, seed)` : baisse d'AUC quand on permute une variable d'origine, avec une prédiction qui inclut `apply_recipe`, calculée après le bouton « Évaluer sur le test », sur un sous-échantillon du test (taille réglable) ;
     - graphique par modèle ;
     - pour la logistique : valeur absolue des coefficients standardisés (`|β_j| × s_j`, `s_j` écart-type en 1/n de la colonne j dans l'entraînement après recette) ; odds ratios et IC à 95 % (`exp(cbind(coef(fit), confint.default(fit)))`) sur le modèle non pondéré, avec la mention que ces IC supposent des observations indépendantes ;
-    - choix de la stratégie de rééquilibrage, appliquée via `balance_train()` dans `train_pipeline()`, après la recette (`quasibinomial` pour la logistique pondérée), répartition des classes affichée après rééquilibrage ; une modalité que le rééchantillonnage retire de l'entraînement alors que la validation ou le test l'ont encore est prédite comme la modalité la plus fréquente de l'entraînement, avec un message (une modalité absente des données reste une erreur) ; les odds ratios viennent d'un modèle non pondéré qui garde les modalités de référence du modèle entraîné.
+    - choix de la stratégie de rééquilibrage, appliquée via `balance_train()` dans `train_pipeline()`, après la recette (`quasibinomial` pour la logistique pondérée), répartition des classes affichée après rééquilibrage :
+      - une modalité que le rééchantillonnage retire de l'entraînement alors que la validation ou le test l'ont encore est prédite comme la modalité la plus fréquente de l'entraînement rééquilibré, avec un message (colonnes restées qualitatives ; avec la dummification, l'indicatrice devenue constante est retirée comme variable sans information) ;
+      - une modalité qui n'a jamais été une modalité de l'entraînement reste une erreur pour la logistique et l'arbre ; la forêt la range sans message du côté de la plus forte proportion de positifs (comportement de `ranger`), et dans l'app la recette l'a déjà remplacée ;
+      - les odds ratios viennent d'un modèle sans pondération ni rééchantillonnage, qui garde les modalités de référence du modèle entraîné.
   - Fichiers : `R/fct_importance.R`, `R/fct_models.R` (rééquilibrage dans `train_pipeline()`, modalités perdues au rééchantillonnage), `R/mod_model.R`, `tests/testthat/test-importance.R`.
   - Vérification :
     - test sur données simulées où `y` ne dépend que de `x1` : importance de `x1` > 0, importance d'une variable de bruit proche de 0 ;
@@ -493,7 +496,7 @@ On ne coupe jamais : les exigences de l'annexe A (dont les trois méthodes de r�
 
 ## Workflow Git
 
-Une étape peut commencer dès que les étapes de sa ligne « Dépend de » sont fusionnées dans `main`. Deux étapes prêtes en même temps peuvent avancer en parallèle : leurs fichiers sont disjoints, sauf `mod_model.R` entre E11a et E11b, d'où leur dépendance. Seul le commit initial, qui ajoute ce plan, est fait directement sur `main`.
+Une étape peut commencer dès que les étapes de sa ligne « Dépend de » sont fusionnées dans `main`. Deux étapes prêtes en même temps peuvent avancer en parallèle : leurs fichiers sont disjoints, sauf `mod_model.R` et `fct_models.R` entre E11a et E11b, d'où leur dépendance. Seul le commit initial, qui ajoute ce plan, est fait directement sur `main`.
 
 Un poste est sous macOS, l'autre sous Windows. Les commandes ci-dessous se tapent dans Git Bash sous Windows. Dans le code, les chemins sont relatifs et construits avec `file.path()`, et l'encodage des fichiers lus est toujours explicite.
 
