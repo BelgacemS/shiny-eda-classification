@@ -403,7 +403,7 @@ Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
     - sur BAAC (20 000 lignes, sous-échantillonnage), nombre de lignes non estimables relevé dans la demande de fusion.
   - Hors périmètre : modifier les modèles pour supprimer la non-estimabilité (c'est le rôle de la liste blanche de E12a et du regroupement des modalités rares).
 
-- [ ] **E11d. Alerte de fuite robuste aux petites validations**
+- [x] **E11d. Alerte de fuite robuste aux petites validations**
   - Dépend de : E11a, E11c (mêmes fichiers `R/fct_models.R`, `R/mod_model.R`, `tests/testthat/test-models.R`).
   - Objectif : ne plus signaler comme fuite une liaison forte mais réelle mesurée sur peu de lignes (au J5, `Height` sur `students.csv`, 10 lignes de validation).
   - Contenu :
