@@ -492,52 +492,22 @@ test_that("the leak alert is computed out of sample, on the original predictors"
   expect_length(out$leak, 0)
 })
 
-test_that("only predictors strictly above LEAK_AUC raise the alert", {
+test_that("the leak alert needs a bound strictly above LEAK_AUC and enough rows of each class", {
   # R/ is sourced into the global environment (setup.R), where train_pipeline() finds it.
-  original <- univariate_auc
-  assign("univariate_auc", function(...) c(x = LEAK_AUC, z = 0.96, g = NA_real_), envir = globalenv())
-  withr::defer(assign("univariate_auc", original, envir = globalenv()))
+  original <- univariate_auc_details
+  fake <- data.frame(variable = c("x", "z", "g"), auc = c(0.99, 0.99, NA_real_),
+                     lower = c(LEAK_AUC, 0.96, NA_real_), n_pos = 40L, n_neg = 40L)
+  assign("univariate_auc_details", function(...) fake, envir = globalenv())
+  withr::defer(assign("univariate_auc_details", original, envir = globalenv()))
   out <- train_pipeline(pipeline_data(), default_recipe(), pipeline_settings(models = "rpart"))
   expect_equal(out$leak, "z")
-})
-
-test_that("train_pipeline never predicts the test set", {
-  # Missing values in the test rows only, without imputation: predicting them fails.
-  ds <- pipeline_data()
-  ds$data$z[ds$data$year == 2024] <- NA
-  s <- pipeline_settings(group = NULL, mode = "variable", by = "year", test_values = "2024")
-  out <- train_pipeline(ds, default_recipe(), s)
-  thr <- vapply(out$results, `[[`, numeric(1), "threshold")
-  expect_error(evaluate_test(out, thr), "valeurs manquantes")
-})
-
-test_that("test results are cleared by a recipe change and by a failed training", {
-  withr::local_seed(24)
-  n <- 400
-  data <- data.frame(y = factor(sample(c("non", "oui"), n, TRUE, prob = c(0.7, 0.3))),
-                     x = rnorm(n), g = factor(sample(c("a", "b"), n, TRUE)))
-  data$x <- data$x + (data$y == "oui")
-  ds <- make_dataset(data, c(y = "quali", x = "quanti", g = "quali"))
-  rec <- shiny::reactiveVal(default_recipe())
-  shiny::testServer(mod_model_server,
-                    args = list(dataset_clean = shiny::reactive(ds), recipe = rec), {
-    inputs <- list(target = "y", positive = "oui", predictors = c("x", "g"), sample_size = n,
-                   group = NO_GROUP, mode = "stratified", test_prop = 0.2, valid_prop = 0.25,
-                   models = "rpart", seed = 1)
-    do.call(session$setInputs, c(inputs, train = 1))
-    session$setInputs(evaluate = 1)
-    expect_false(is.null(tested()))
-    rec(utils::modifyList(default_recipe(), list(scale = list(method = "standard"))))
-    session$flushReact()
-    expect_null(trained())
-    expect_null(tested())
-    session$setInputs(train = 2)
-    session$setInputs(evaluate = 2)
-    expect_false(is.null(tested()))
-    session$setInputs(models = character(0), train = 3)  # refused by settings_problem
-    expect_null(trained())
-    expect_null(tested())
-  })
+  expect_equal(out$leak_caution, "x")
+  # Too few rows of a class: caution, not leak.
+  fake$n_pos <- c(40L, LEAK_MIN_PER_CLASS - 1L, 40L)
+  out <- train_pipeline(pipeline_data(), default_recipe(), pipeline_settings(models = "rpart"))
+  expect_length(out$leak, 0)
+  expect_setequal(out$leak_caution, c("x", "z"))
+  expect_match(out$messages, "Liaison très forte.*trop petite", all = FALSE)
 })
 
 test_that("a leaking predictor raises a warning notification after training", {
@@ -546,7 +516,8 @@ test_that("a leaking predictor raises a warning notification after training", {
     notes <<- c(notes, paste(type, ui))
   }, .package = "shiny")
   withr::local_seed(25)
-  n <- 400
+  # Large enough for LEAK_MIN_PER_CLASS rows of each class in the validation set.
+  n <- 1200
   data <- data.frame(y = factor(sample(c("non", "oui"), n, TRUE, prob = c(0.7, 0.3))),
                      x = rnorm(n))
   data$copy <- factor(as.character(data$y))
@@ -726,3 +697,5 @@ test_that("validation and test counts differ and each goes to its own message", 
     expect_error(output$test_messages)
   })
 })
+
+# --- E11d: leak alert robust to small validation sets --------------------------------

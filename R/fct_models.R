@@ -316,13 +316,23 @@ train_pipeline <- function(dataset, recipe, settings) {
 
   # Leak alert on the original predictors, before the recipe and without weights.
   started <- proc.time()[["elapsed"]]
-  uni_auc <- univariate_auc(split$train$x, split$train$y, split$valid$x, split$valid$y)
+  details <- univariate_auc_details(split$train$x, split$train$y, split$valid$x, split$valid$y)
+  uni_auc <- stats::setNames(details$auc, details$variable)
   timings[["leak_alert"]] <- proc.time()[["elapsed"]] - started
-  leak <- names(uni_auc)[!is.na(uni_auc) & uni_auc > LEAK_AUC]
+  status <- leak_status(details)
+  leak <- status$leak
+  if (length(status$caution) > 0) {
+    messages <- c(messages, sprintf(paste0(
+      "Liaison très forte avec la cible (AUC univariée sur la validation supérieure à %s) : %s. ",
+      "La validation est trop petite pour conclure à une fuite (moins de %d lignes d'une classe, ",
+      "ou intervalle de confiance trop large) : vérifier que ces variables ne sont pas dérivées de la cible."),
+      format_number(LEAK_AUC, 2), paste(status$caution, collapse = ", "), LEAK_MIN_PER_CLASS))
+  }
   if (length(leak) > 0) {
     messages <- c(messages, sprintf(paste0(
-      "Liaison quasi parfaite avec la cible (AUC univariée sur la validation supérieure à %s) : %s. ",
-      "Fuite probable : variable dérivée de la cible ou quasi identifiante, à retirer des variables explicatives."),
+      "Liaison quasi parfaite avec la cible (borne basse de l'intervalle de confiance à 95 %% de l'AUC ",
+      "univariée sur la validation supérieure à %s) : %s. Fuite probable : variable dérivée de la cible ",
+      "ou quasi identifiante, à retirer des variables explicatives."),
       format_number(LEAK_AUC, 2), paste(leak, collapse = ", ")))
   }
 
@@ -331,6 +341,7 @@ train_pipeline <- function(dataset, recipe, settings) {
   list(split = split, results = results, messages = messages, sample_rows = rows,
        distribution = target_distribution(split), target = target, positive = settings$positive,
        naive_valid = naive_metrics(split$valid$y), univariate_auc = uni_auc, leak = leak,
+       leak_caution = status$caution,
        seed = settings$seed, timings = timings)
 }
 

@@ -117,6 +117,12 @@ naive_metrics <- function(y) {
 
 # Above this univariate AUC a predictor is almost a copy of the target.
 LEAK_AUC <- 0.95
+# "Fuite probable" also needs this many evaluation rows of each class: the
+# DeLong variance is 0 when the AUC is exactly 0 or 1, so the interval
+# collapses to [1, 1] whatever the size; with 4 positives and 6 negatives a
+# variable of true AUC 0.9 reaches an AUC of 1 in about 30 % of draws. At 30
+# rows per class the standard error near 0.95 is about 0.03.
+LEAK_MIN_PER_CLASS <- 30
 
 # AUC of each predictor taken alone, learned on the training set and measured
 # on an evaluation set, then max(AUC, 1 - AUC): the alert measures the
@@ -127,17 +133,44 @@ LEAK_AUC <- 0.95
 # being learned on its own rows). 0.5 for a constant column, NA for a column
 # without values or when the evaluation set has a single class; never an error.
 univariate_auc <- function(x_train, y_train, x_eval, y_eval) {
+  details <- univariate_auc_details(x_train, y_train, x_eval, y_eval)
+  stats::setNames(details$auc, details$variable)
+}
+
+# Same AUC per variable, with the lower bound of the 95 % DeLong interval of
+# max(AUC, 1 - AUC) (DeLong et al., 1988) and the evaluation rows of each
+# class used (complete cases for a quanti variable). The bound of the
+# symmetrized AUC is the lower bound of the AUC when it is at least 0.5, else
+# 1 minus its upper bound. NA when it cannot be computed (one row of a class).
+univariate_auc_details <- function(x_train, y_train, x_eval, y_eval) {
   x_train <- as.data.frame(x_train)
   x_eval <- as.data.frame(x_eval)
-  vapply(stats::setNames(names(x_train), names(x_train)), function(v) {
+  empty <- list(auc = NA_real_, lower = NA_real_, n_pos = 0L, n_neg = 0L)
+  rows <- lapply(names(x_train), function(v) {
     tryCatch(univariate_auc_one(x_train[[v]], y_train, x_eval[[v]], y_eval),
-             error = function(e) NA_real_)
-  }, numeric(1))
+             error = function(e) empty)
+  })
+  data.frame(variable = names(x_train),
+             auc = vapply(rows, `[[`, numeric(1), "auc"),
+             lower = vapply(rows, `[[`, numeric(1), "lower"),
+             n_pos = vapply(rows, function(r) as.integer(r$n_pos), integer(1)),
+             n_neg = vapply(rows, function(r) as.integer(r$n_neg), integer(1)))
+}
+
+# Variables to report: `leak` when the bound exceeds LEAK_AUC with at least
+# LEAK_MIN_PER_CLASS rows of each class; `caution` when the AUC exceeds
+# LEAK_AUC without meeting both conditions (set too small to conclude).
+leak_status <- function(details) {
+  strong <- !is.na(details$auc) & details$auc > LEAK_AUC
+  sure <- strong & !is.na(details$lower) & details$lower > LEAK_AUC &
+    details$n_pos >= LEAK_MIN_PER_CLASS & details$n_neg >= LEAK_MIN_PER_CLASS
+  list(leak = details$variable[sure], caution = details$variable[strong & !sure])
 }
 
 univariate_auc_one <- function(train, y_train, eval, y_eval) {
+  none <- list(auc = NA_real_, lower = NA_real_, n_pos = 0L, n_neg = 0L)
   if (is.null(eval) || all(is.na(train)) || all(is.na(eval))) {
-    return(NA_real_)
+    return(none)
   }
   if (is.numeric(eval)) {
     keep <- !is.na(eval)
@@ -151,12 +184,20 @@ univariate_auc_one <- function(train, y_train, eval, y_eval) {
     score[is.na(score)] <- mean(y_train)
     y <- y_eval
   }
+  counts <- list(n_pos = sum(y == 1), n_neg = sum(y == 0))
   if (length(unique(y)) < 2) {
-    return(NA_real_)
+    return(c(list(auc = NA_real_, lower = NA_real_), counts))
   }
   if (is_constant(score)) {
-    return(0.5)
+    return(c(list(auc = 0.5, lower = NA_real_), counts))
   }
-  auc <- roc_curve(y, score)$auc
-  max(auc, 1 - auc)
+  r <- pROC::roc(response = y, predictor = score, levels = c(0, 1), direction = "<", quiet = TRUE)
+  auc <- as.numeric(r$auc)
+  # pROC warns that an interval at AUC 0 or 1 is degenerate: the minimum
+  # number of rows per class handles that case.
+  ci <- withCallingHandlers(
+    tryCatch(as.numeric(pROC::ci.auc(r, method = "delong")), error = function(e) rep(NA_real_, 3)),
+    warning = function(w) invokeRestart("muffleWarning"))
+  lower <- if (auc >= 0.5) ci[1] else 1 - ci[3]
+  c(list(auc = max(auc, 1 - auc), lower = lower), counts)
 }

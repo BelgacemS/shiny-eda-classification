@@ -174,3 +174,65 @@ test_that("a quanti predictor with missing values is scored on its complete case
   # Complete cases of the evaluation set: (1, 0), (3, 1), (4, 1), so AUC = 1.
   expect_equal(univariate_auc(x_train, y_train, x_eval, y_eval)[["v"]], 1)
 })
+
+# --- E11d: DeLong bound and minimum size for the leak alert ---------------------------
+
+test_that("the lower bound is the DeLong one, symmetrized when the AUC is below 0.5", {
+  withr::local_seed(50)
+  y <- rbinom(200, 1, 0.4)
+  score <- y + rnorm(200)
+  r <- pROC::roc(response = y, predictor = score, levels = c(0, 1), direction = "<", quiet = TRUE)
+  ci <- as.numeric(pROC::ci.auc(r, method = "delong"))
+  x_train <- data.frame(up = score, down = -score)
+  d <- univariate_auc_details(x_train, y, x_train, y)
+  expect_equal(d$lower[d$variable == "up"], ci[1])
+  # -score has AUC 1 - AUC: its symmetrized bound is 1 minus the upper bound of its own interval.
+  r_down <- pROC::roc(response = y, predictor = -score, levels = c(0, 1), direction = "<", quiet = TRUE)
+  ci_down <- as.numeric(pROC::ci.auc(r_down, method = "delong"))
+  expect_equal(d$lower[d$variable == "down"], 1 - ci_down[3])
+  expect_equal(d$lower[d$variable == "down"], d$lower[d$variable == "up"])
+  expect_equal(c(d$n_pos[1], d$n_neg[1]), c(sum(y == 1), sum(y == 0)))
+  # The vector output used by E12a is unchanged.
+  expect_equal(univariate_auc(x_train, y, x_train, y), stats::setNames(d$auc, d$variable))
+})
+
+test_that("a copy of the target on 30 rows per class is a leak", {
+  y <- rep(c(0, 1), each = 30)
+  x <- data.frame(copy = factor(ifelse(y == 1, "oui", "non")), score = y)
+  expect_silent(d <- univariate_auc_details(x, y, x, y))
+  expect_equal(d$lower, c(1, 1))
+  expect_equal(leak_status(d)$leak, c("copy", "score"))
+})
+
+test_that("on 5 positives and 5 negatives, AUC 1 or 0.96 gives caution, not leak", {
+  y <- rep(c(0, 1), each = 5)
+  # perfect: AUC 1; one_swap: the highest negative above the lowest positive, AUC 24 / 25 = 0.96.
+  x <- data.frame(perfect = c(1:5, 6:10), one_swap = c(1, 2, 3, 4, 6, 5, 7, 8, 9, 10))
+  expect_silent(d <- univariate_auc_details(x, y, x, y))
+  expect_equal(d$auc, c(1, 0.96))
+  status <- leak_status(d)
+  expect_length(status$leak, 0)
+  expect_equal(status$caution, c("perfect", "one_swap"))
+})
+
+test_that("with 30 rows per class, an AUC above 0.95 whose bound is not gives caution", {
+  # Binormal quantiles 2.6 sd apart: AUC 0.970, DeLong lower bound about 0.935.
+  y <- rep(c(0, 1), each = 30)
+  x <- data.frame(v = c(stats::qnorm(stats::ppoints(30)), stats::qnorm(stats::ppoints(30)) + 2.6))
+  d <- univariate_auc_details(x, y, x, y)
+  expect_gt(d$auc, LEAK_AUC)
+  expect_lt(d$lower, LEAK_AUC)
+  expect_equal(leak_status(d)$caution, "v")
+  expect_length(leak_status(d)$leak, 0)
+})
+
+test_that("AUC 0 or 1 and a single row of a class give no warning nor error", {
+  y <- c(0, 0, 0, 1)
+  x <- data.frame(up = c(1, 2, 3, 4), down = c(4, 3, 2, 1))
+  expect_silent(d <- univariate_auc_details(x, y, x, y))
+  expect_equal(d$auc, c(1, 1))
+  expect_equal(d$n_pos, c(1L, 1L))
+  status <- leak_status(d)
+  expect_length(status$leak, 0)
+  expect_equal(status$caution, c("up", "down"))
+})
