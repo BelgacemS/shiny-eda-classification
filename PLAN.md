@@ -425,7 +425,7 @@ Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
     - `final_models.rds` de quelques Mo au plus.
   - Hors périmètre : rédaction de l'onglet 5.
 
-- [ ] **Redéploiement J5** : après fusion de E11b, chaîne complète de l'onglet 4 (trois modèles, ROC, seuils, importances, rééquilibrage) sur l'URL publique, avec BAAC et `students.csv` ; temps du clic « Entraîner » sur 20 000 lignes BAAC (critère de 30 s, ou celui fixé en E11a), temps des importances, et mémoire de l'instance après deux sessions entraînées, comparée aux 832,5 Mio du redéploiement J4 ; limites de l'offre gratuite du README relues avec leur commande ou leur source.
+- [x] **Redéploiement J5** : après fusion de E11b, chaîne complète de l'onglet 4 (trois modèles, ROC, seuils, importances, rééquilibrage) sur l'URL publique, avec BAAC et `students.csv` ; temps du clic « Entraîner » sur 20 000 lignes BAAC (critère de 30 s, ou celui fixé en E11a), temps des importances, et mémoire de l'instance après deux sessions entraînées, comparée aux 832,5 Mio du redéploiement J4 ; limites de l'offre gratuite du README relues avec leur commande ou leur source.
 
 ### Jalon 6 : étude de cas rédigée, app complète
 
