@@ -252,3 +252,176 @@ test_that("a quasi-separated level gets a huge Wald standard error and is flagge
   expect_equal(table$Remarque[table$Terme == "gs"], "séparation probable")
   expect_equal(table$Remarque[table$Terme == "v"], "")
 })
+
+# --- Tests added after review and mutation testing -------------------------------
+
+review_data <- function(n = 300, seed = 40) {
+  withr::local_seed(seed)
+  x <- data.frame(x1 = rnorm(n), noise = rnorm(n))
+  list(x = x, y = stats::rbinom(n, 1, stats::plogis(2 * x$x1 - 1)))
+}
+
+review_frame <- function(n = 900, seed = 35) {
+  withr::local_seed(seed)
+  x <- rnorm(n)
+  data <- data.frame(y = factor(ifelse(stats::rbinom(n, 1, stats::plogis(2 * x - 1.8)) == 1, "oui", "non")),
+                     x = x, noise = rnorm(n), g = factor(sample(c("a", "b"), n, TRUE)))
+  make_dataset(data, c(y = "quali", x = "quanti", noise = "quanti", g = "quali"))
+}
+
+review_settings <- function(...) {
+  utils::modifyList(list(target = "y", positive = "oui", predictors = c("x", "noise", "g"),
+                         sample_size = 10000, group = NULL, mode = "stratified", test_prop = 0.2,
+                         valid_prop = 0.25, models = c("glm", "ranger", "rpart"), seed = 1),
+                    list(...))
+}
+
+# Kills M04 (same permutation for every variable) and M05 (same permutation
+# for every repetition).
+test_that("each variable and each repetition gets its own permutation", {
+  d <- review_data()
+  model <- fit_model("glm", d$x, d$y)
+  fn <- function(x) predict_proba(model, x)
+  imp <- perm_importance(fn, d$x, d$y, c("x1", "noise"), n_rep = 2, seed = 9)
+  n <- nrow(d$x)
+  # Draw order: x1 rep 1, x1 rep 2, noise rep 1, noise rep 2.
+  orders <- with_seed(9, lapply(1:4, function(i) sample.int(n)))
+  base <- roc_curve(d$y, fn(d$x))$auc
+  drop <- function(v, o) {
+    p <- d$x
+    p[[v]] <- d$x[[v]][o]
+    base - roc_curve(d$y, fn(p))$auc
+  }
+  x1 <- c(drop("x1", orders[[1]]), drop("x1", orders[[2]]))
+  noise <- c(drop("noise", orders[[3]]), drop("noise", orders[[4]]))
+  expect_equal(imp$importance[imp$variable == "x1"], mean(x1))
+  expect_equal(imp$importance[imp$variable == "noise"], mean(noise))
+  # Spread over the repetitions, 1/n: half the gap between the two drops.
+  expect_equal(imp$sd[imp$variable == "x1"], abs(x1[1] - x1[2]) / 2)
+})
+
+# Kills M03 (permutation of the recipe's output columns).
+test_that("importances permute the original variables even when the recipe creates columns", {
+  ds <- review_frame()
+  rec <- default_recipe()
+  rec$dummy$method <- "one_hot"
+  rec$scale$method <- "standard"
+  out <- train_pipeline(ds, rec, review_settings(models = c("glm", "ranger")))
+  expect_false(setequal(names(out$results$ranger$recipe$train), c("x", "noise", "g")))
+  imp <- compute_importances(out, size = 150)
+  for (type in names(imp$permutation)) {
+    expect_setequal(imp$permutation[[type]]$variable, c("x", "noise", "g"))
+  }
+})
+
+# Kills M10 (s_j on the resampled training set).
+test_that("s_j is computed on the training set after the recipe, not on the resampled one", {
+  ds <- review_frame()
+  out <- train_pipeline(ds, default_recipe(), review_settings(models = "glm", balance = "under"))
+  li <- compute_importances(out, size = 100)$logistic
+  expect_equal(li$sd[li$term == "x"], sd_1n(out$results$glm$recipe$train$x))
+})
+
+# Kills M15 (kept_rows ignored in the unweighted refit).
+test_that("the unweighted refit uses the target aligned with the rows kept by the recipe", {
+  ds <- review_frame()
+  rec <- default_recipe()
+  rec$outliers$action <- "remove"
+  rec$outliers$method <- "zscore"
+  rec$outliers$z <- 2
+  out <- train_pipeline(ds, rec, review_settings(models = "glm", balance = "weights"))
+  r <- out$results$glm
+  expect_lt(length(r$recipe$kept_rows), length(out$split$train$y))
+  li <- compute_importances(out, size = 100)$logistic
+  refit <- fit_model("glm", r$recipe$train, out$split$train$y[r$recipe$kept_rows])
+  expect_equal(li$odds_ratio[li$term == "x"], exp(stats::coef(refit$fit)[["x"]]))
+})
+
+# Kills M20 (weights not passed to ranger).
+test_that("every model is trained with the class weights", {
+  ds <- review_frame()
+  plain <- train_pipeline(ds, default_recipe(), review_settings())
+  weighted <- train_pipeline(ds, default_recipe(), review_settings(balance = "weights"))
+  for (type in c("glm", "ranger", "rpart")) {
+    expect_false(isTRUE(all.equal(weighted$results[[type]]$prob_valid, plain$results[[type]]$prob_valid)),
+                 info = type)
+  }
+})
+
+# Kills M32 (seed read from the current input) and M34 (weighted share not shown).
+test_that("importances use the training seed, and the weighted share is shown", {
+  ds <- review_frame()
+  shiny::testServer(mod_model_server,
+                    args = list(dataset_clean = shiny::reactive(ds),
+                                recipe = shiny::reactive(default_recipe())), {
+    session$setInputs(target = "y", positive = "oui", predictors = c("x", "noise", "g"),
+                      sample_size = 900, group = NO_GROUP, mode = "stratified", test_prop = 0.2,
+                      valid_prop = 0.25, models = "glm", balance = "weights",
+                      balance_ratio = 1, seed = 1, importance_size = 150, importance_reps = 1,
+                      train = 1)
+    expect_match(output$distribution, "50,0 % des poids")
+    session$setInputs(seed = 7, evaluate = 1)
+    expected <- compute_importances(trained(), size = 150, n_rep = 1, seed = 1)
+    expect_equal(importances()$permutation, expected$permutation)
+  })
+})
+
+# Found in review: under resampling the reference level of a
+# factor can differ between the weighted model and the unweighted refit, and
+# the odds ratio of a row then refers to another contrast than its beta.
+test_that("odds ratios use the same reference levels as the ranked coefficients", {
+  withr::local_seed(1)
+  n <- 3000
+  y <- stats::rbinom(n, 1, 0.2)
+  # Level A is the mode among negatives, B among positives: undersampling
+  # changes the most frequent level, hence the reference of fit_glm().
+  g <- ifelse(y == 1, sample(c("A", "B", "C"), n, TRUE, c(0.2, 0.6, 0.2)),
+              sample(c("A", "B", "C"), n, TRUE, c(0.5, 0.3, 0.2)))
+  data <- data.frame(y = factor(ifelse(y == 1, "oui", "non")), g = factor(g), v = rnorm(n))
+  ds <- make_dataset(data, c(y = "quali", g = "quali", v = "quanti"))
+  s <- list(target = "y", positive = "oui", predictors = c("g", "v"), sample_size = n, group = NULL,
+            mode = "stratified", test_prop = 0.2, valid_prop = 0.25, models = "glm", seed = 1,
+            balance = "under", balance_ratio = 1)
+  out <- train_pipeline(ds, default_recipe(), s)
+  r <- out$results$glm
+  li <- compute_importances(out, size = 200)$logistic
+  expect_false(anyNA(li$odds_ratio))
+  # Unweighted fit by hand, with the reference of the ranked model.
+  x <- r$recipe$train
+  x$g <- stats::relevel(factor(as.character(x$g)), ref = r$model$levels$g[1])
+  x$..y <- out$split$train$y[r$recipe$kept_rows]
+  by_hand <- stats::glm(..y ~ ., data = x, family = stats::binomial())
+  for (term in li$term) {
+    expect_equal(li$odds_ratio[li$term == term], exp(stats::coef(by_hand)[[term]]), info = term)
+  }
+})
+
+# Found in review: a level separated only in the resampled
+# training set gets a runaway coefficient that ranks high on |beta| x s, but
+# the flag reads the standard error of the unweighted fit.
+test_that("a coefficient that runs away in the ranked model is flagged", {
+  withr::local_seed(38)
+  n <- 800
+  x <- data.frame(v = rnorm(n), g = factor(sample(c("a", "b"), n, TRUE), levels = c("a", "b", "s")))
+  y <- stats::rbinom(n, 1, stats::plogis(x$v))
+  # Level "s": 6 positives and 4 negatives; the 4 negatives are the rows a
+  # resampling removed, so "s" is separated in the ranked model only.
+  x$g[1:10] <- "s"
+  y[1:10] <- c(rep(1, 6), rep(0, 4))
+  kept <- setdiff(seq_len(n), 7:10)
+  ranked <- suppressWarnings(fit_model("glm", x[kept, ], y[kept]))
+  unweighted <- suppressWarnings(fit_model("glm", x, y))
+  table <- logistic_table(logistic_importance(ranked, x, unweighted))
+  expect_equal(table$Remarque[table$Terme == "gs"], "séparation probable")
+  expect_equal(table$Remarque[table$Terme == "v"], "")
+})
+
+test_that("a numeric column on a tiny scale is not flagged as separated", {
+  withr::local_seed(39)
+  n <- 800
+  x <- data.frame(v = rnorm(n, sd = 0.002))
+  y <- stats::rbinom(n, 1, 0.3)
+  li <- logistic_importance(fit_model("glm", x, y), x)
+  expect_gt(li$se[li$term == "v"], SEPARATION_SE)  # the se follows the scale of v
+  expect_false(li$separation[li$term == "v"])
+})

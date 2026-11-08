@@ -44,8 +44,9 @@ fit_model <- function(type, x, y, weights = NULL, ...) {
   } else {
     character(0)
   }
-  # Such a level is predicted as the most frequent training level, the rule of
-  # the recipe for unseen levels; a level absent from the data stays an error.
+  # Such a level is predicted as the most frequent training level, as the
+  # recipe does for an unseen level when it has no "Autre" level; a level
+  # absent from the data stays an error.
   fallback <- list()
   for (v in intersect(names(x)[vapply(x, is.factor, logical(1))], names(absent))) {
     if (length(absent[[v]]) > 0) {
@@ -66,7 +67,7 @@ fit_model <- function(type, x, y, weights = NULL, ...) {
   if (ncol(x) == 0) {
     stop("aucune variable explicative informative dans l'entraînement.", call. = FALSE)
   }
-  fit <- switch(type, glm = fit_glm(x, y, weights), ranger = fit_ranger(x, y, weights, ...),
+  fit <- switch(type, glm = fit_glm(x, y, weights, ...), ranger = fit_ranger(x, y, weights, ...),
                 rpart = fit_rpart(x, y, weights, ...))
   structure(
     list(type = type, fit = fit$model, columns = names(x), levels = fit$levels,
@@ -82,13 +83,18 @@ uninformative <- function(v) {
 }
 
 # Logistic regression. Each factor takes its most frequent training level as
-# reference (the alphabetical order depends on the locale). quasibinomial when
-# the weights are not integers: same coefficients, without the warning.
-fit_glm <- function(x, y, weights) {
+# reference (the alphabetical order depends on the locale), unless reference
+# (a named list, variable -> level) gives another one: a refit can then keep
+# the references of another fit. quasibinomial when the weights are not
+# integers: same coefficients, without the warning. Other arguments in ... are
+# ignored (the seed of the pipeline: the fit is deterministic).
+fit_glm <- function(x, y, weights, reference = NULL, ...) {
   factors <- names(x)[vapply(x, is.factor, logical(1))]
   levels <- lapply(stats::setNames(factors, factors), function(v) {
     counts <- table(x[[v]])
-    c(names(counts)[which.max(counts)], setdiff(levels(x[[v]]), names(counts)[which.max(counts)]))
+    first <- reference[[v]]
+    if (is.null(first) || !first %in% levels(x[[v]])) first <- names(counts)[which.max(counts)]
+    c(first, setdiff(levels(x[[v]]), first))
   })
   for (v in factors) x[[v]] <- factor(x[[v]], levels = levels[[v]])
   # The target goes in a reserved column; the weights stay out of the data, in
@@ -142,6 +148,17 @@ fit_ranger <- function(x, y, weights, ...) {
   list(model = do.call(ranger::ranger, args), levels = NULL, messages = character(0))
 }
 
+# Levels without rows in training replaced by the level of model$fallback.
+apply_fallback <- function(model, newx) {
+  for (v in names(model$fallback)) {
+    fb <- model$fallback[[v]]
+    values <- as.character(newx[[v]])
+    values[values %in% fb$levels] <- fb$to
+    newx[[v]] <- factor(values, levels = union(setdiff(levels(newx[[v]]), fb$levels), fb$to))
+  }
+  newx
+}
+
 # Classification tree. xval = 0: the internal cross-validation of rpart draws
 # from the global random state, shared by all sessions of the server, and is
 # not needed with a fixed cp. Weights and target stay out of the predictor
@@ -168,12 +185,7 @@ predict_proba <- function(model, newx) {
   }
   newx <- newx[model$columns]
   newx[] <- lapply(newx, function(v) if (is.logical(v)) as.numeric(v) else v)
-  for (v in names(model$fallback)) {
-    fb <- model$fallback[[v]]
-    values <- as.character(newx[[v]])
-    values[values %in% fb$levels] <- fb$to
-    newx[[v]] <- factor(values, levels = setdiff(levels(newx[[v]]), fb$levels))
-  }
+  newx <- apply_fallback(model, newx)
   with_na <- names(newx)[vapply(newx, anyNA, logical(1))]
   if (length(with_na) > 0) {
     stop("valeurs manquantes après la recette dans : ", paste(with_na, collapse = ", "),
