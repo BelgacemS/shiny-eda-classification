@@ -126,7 +126,8 @@ fit_ranger <- function(x, y, weights, ...) {
 # Classification tree. xval = 0: the internal cross-validation of rpart draws
 # from the global random state, shared by all sessions of the server, and is
 # not needed with a fixed cp. Weights and target stay out of the predictor
-# names, as in fit_glm(). Arguments in ... go to rpart.control().
+# names, as in fit_glm(). Arguments in ... go to rpart.control(), which drops
+# those it does not know (the seed of the pipeline: the fit is deterministic).
 fit_rpart <- function(x, y, weights, ...) {
   factors <- names(x)[vapply(x, is.factor, logical(1))]
   levels <- lapply(stats::setNames(factors, factors), function(v) levels(x[[v]]))

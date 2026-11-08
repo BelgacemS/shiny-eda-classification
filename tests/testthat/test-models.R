@@ -411,7 +411,6 @@ test_that("the test set is evaluated only on the button, with frozen thresholds"
                      x = rnorm(n), g = factor(sample(c("a", "b"), n, TRUE)))
   data$x <- data$x + (data$y == "oui")
   ds <- make_dataset(data, c(y = "quali", x = "quanti", g = "quali"))
-  calls <- 0
   shiny::testServer(mod_model_server,
                     args = list(dataset_clean = shiny::reactive(ds),
                                 recipe = shiny::reactive(default_recipe())), {
@@ -443,4 +442,120 @@ test_that("the test set is evaluated only on the button, with frozen thresholds"
     expect_null(tested())
     expect_equal(thresholds()[["glm"]], trained()$results$glm$threshold)
   })
+})
+
+test_that("the formula environment does not keep the full QR matrix", {
+  d <- simulated(seed = 21)
+  model <- fit_model("glm", d$x, d$y)
+  held <- get("model", envir = environment(model$fit$terms))
+  expect_equal(nrow(held$qr$qr), ncol(held$qr$qr))
+  expect_identical(held$qr$qr, model$fit$qr$qr)
+})
+
+test_that("every model gives the probability of class 1", {
+  d <- simulated(seed = 22)
+  for (type in names(MODEL_LABELS)) {
+    prob <- predict_proba(fit_model(type, d$x, d$y), d$x)
+    expect_gt(roc_curve(d$y, prob)$auc, 0.6, label = type)
+  }
+})
+
+test_that("the tree uses the case weights", {
+  d <- simulated(seed = 23)
+  w <- ifelse(d$y == 1, 5, 1)
+  p_plain <- predict_proba(fit_model("rpart", d$x, d$y), d$x)
+  p_weighted <- predict_proba(fit_model("rpart", d$x, d$y, weights = w), d$x)
+  expect_gt(mean(p_weighted), mean(p_plain))
+})
+
+test_that("the naive references of the validation set use the validation labels", {
+  ds <- pipeline_data()
+  out <- train_pipeline(ds, default_recipe(), pipeline_settings())
+  expect_false(isTRUE(all.equal(mean(out$split$valid$y), mean(out$split$train$y))))
+  expect_equal(out$naive_valid$all_positive$metrics[["precision"]], mean(out$split$valid$y))
+})
+
+test_that("the leak alert is computed out of sample, on the original predictors", {
+  ds <- pipeline_data()
+  recipe <- utils::modifyList(default_recipe(), list(
+    scale = list(method = "standard"), dummy = list(method = "k_minus_1")))
+  out <- train_pipeline(ds, recipe, pipeline_settings())
+  expect_equal(out$univariate_auc, univariate_auc(out$split$train$x, out$split$train$y,
+                                                  out$split$valid$x, out$split$valid$y))
+  # A quali column with one level per row is perfect in sample, near 0.5 out of sample.
+  ds$data$row_id <- factor(seq_len(nrow(ds$data)))
+  ds$var_types[["row_id"]] <- "quali"
+  out <- train_pipeline(ds, default_recipe(),
+                        pipeline_settings(predictors = c("x", "z", "g", "row_id"), models = "rpart"))
+  expect_equal(out$univariate_auc[["row_id"]], 0.5)
+  expect_length(out$leak, 0)
+})
+
+test_that("only predictors strictly above LEAK_AUC raise the alert", {
+  # R/ is sourced into the global environment (setup.R), where train_pipeline() finds it.
+  original <- univariate_auc
+  assign("univariate_auc", function(...) c(x = LEAK_AUC, z = 0.96, g = NA_real_), envir = globalenv())
+  withr::defer(assign("univariate_auc", original, envir = globalenv()))
+  out <- train_pipeline(pipeline_data(), default_recipe(), pipeline_settings(models = "rpart"))
+  expect_equal(out$leak, "z")
+})
+
+test_that("train_pipeline never predicts the test set", {
+  # Missing values in the test rows only, without imputation: predicting them fails.
+  ds <- pipeline_data()
+  ds$data$z[ds$data$year == 2024] <- NA
+  s <- pipeline_settings(group = NULL, mode = "variable", by = "year", test_values = "2024")
+  out <- train_pipeline(ds, default_recipe(), s)
+  thr <- vapply(out$results, `[[`, numeric(1), "threshold")
+  expect_error(evaluate_test(out, thr), "valeurs manquantes")
+})
+
+test_that("test results are cleared by a recipe change and by a failed training", {
+  withr::local_seed(24)
+  n <- 400
+  data <- data.frame(y = factor(sample(c("non", "oui"), n, TRUE, prob = c(0.7, 0.3))),
+                     x = rnorm(n), g = factor(sample(c("a", "b"), n, TRUE)))
+  data$x <- data$x + (data$y == "oui")
+  ds <- make_dataset(data, c(y = "quali", x = "quanti", g = "quali"))
+  rec <- shiny::reactiveVal(default_recipe())
+  shiny::testServer(mod_model_server,
+                    args = list(dataset_clean = shiny::reactive(ds), recipe = rec), {
+    inputs <- list(target = "y", positive = "oui", predictors = c("x", "g"), sample_size = n,
+                   group = NO_GROUP, mode = "stratified", test_prop = 0.2, valid_prop = 0.25,
+                   models = "rpart", seed = 1)
+    do.call(session$setInputs, c(inputs, train = 1))
+    session$setInputs(evaluate = 1)
+    expect_false(is.null(tested()))
+    rec(utils::modifyList(default_recipe(), list(scale = list(method = "standard"))))
+    session$flushReact()
+    expect_null(trained())
+    expect_null(tested())
+    session$setInputs(train = 2)
+    session$setInputs(evaluate = 2)
+    expect_false(is.null(tested()))
+    session$setInputs(models = character(0), train = 3)  # refused by settings_problem
+    expect_null(trained())
+    expect_null(tested())
+  })
+})
+
+test_that("a leaking predictor raises a warning notification after training", {
+  notes <- character(0)
+  local_mocked_bindings(showNotification = function(ui, ..., type = "default") {
+    notes <<- c(notes, paste(type, ui))
+  }, .package = "shiny")
+  withr::local_seed(25)
+  n <- 400
+  data <- data.frame(y = factor(sample(c("non", "oui"), n, TRUE, prob = c(0.7, 0.3))),
+                     x = rnorm(n))
+  data$copy <- factor(as.character(data$y))
+  ds <- make_dataset(data, c(y = "quali", x = "quanti", copy = "quali"))
+  shiny::testServer(mod_model_server,
+                    args = list(dataset_clean = shiny::reactive(ds),
+                                recipe = shiny::reactive(default_recipe())), {
+    session$setInputs(target = "y", positive = "oui", predictors = c("x", "copy"), sample_size = n,
+                      group = NO_GROUP, mode = "stratified", test_prop = 0.2, valid_prop = 0.25,
+                      models = "rpart", seed = 1, train = 1)
+  })
+  expect_match(notes, "^warning Liaison quasi parfaite.*copy", all = FALSE)
 })
