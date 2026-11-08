@@ -294,8 +294,8 @@ mod_model_server <- function(id, dataset_clean, recipe) {
       size <- input$importance_size
       reps <- input$importance_reps
       if (is.null(size) || is.na(size) || size < 100 || is.null(reps) || is.na(reps) ||
-          reps < 1 || reps > 5) {
-        showNotification("Importances : au moins 100 lignes et de 1 à 5 permutations par variable.",
+          reps < 1 || reps > 5 || reps != round(reps)) {
+        showNotification("Importances : au moins 100 lignes et de 1 à 5 permutations (entier) par variable.",
                          type = "error")
         return()
       }
@@ -341,8 +341,9 @@ mod_model_server <- function(id, dataset_clean, recipe) {
                  "colonne dans l'entraînement après la recette. Odds ratios et IC à 95 % (Wald) sur le",
                  "modèle sans pondération ni rééchantillonnage ; ces IC supposent des observations",
                  "indépendantes (faux si plusieurs individus d'un même groupe). « Séparation probable » :",
-                 "erreur standard de Wald supérieure à 5, coefficient non interprétable (modalité rare ou",
-                 "séparation quasi complète) ; regrouper les modalités rares dans l'onglet Prétraitement."),
+                 "indicatrice dont l'erreur standard de Wald dépasse 5 dans le modèle classé, coefficient",
+                 "non interprétable (modalité rare, ou séparée par le rééchantillonnage) ; regrouper les",
+                 "modalités rares dans l'onglet Prétraitement."),
         tableOutput(session$ns("logistic_table"))
       )
     })
@@ -454,7 +455,7 @@ logistic_table <- function(logistic, n_top = 20) {
   data.frame(Terme = l$term, `Coefficient β` = number(l$coefficient),
              `|β| × s` = format_number(l$standardized, 3), `Odds ratio` = number(l$odds_ratio),
              `IC 95 % bas` = number(l$lower), `IC 95 % haut` = number(l$upper),
-             Remarque = ifelse(!is.na(l$se) & l$se > SEPARATION_SE, "séparation probable", ""),
+             Remarque = ifelse(l$separation %in% TRUE, "séparation probable", ""),
              check.names = FALSE)
 }
 

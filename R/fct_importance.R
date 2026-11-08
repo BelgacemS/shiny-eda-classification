@@ -29,7 +29,7 @@ perm_importance <- function(predict_fn, test_raw, y, vars, n_rep = 3, seed = 1) 
   }, numeric(n_rep))
   drops <- matrix(drops, nrow = n_rep)
   out <- data.frame(variable = vars, importance = colMeans(drops),
-                    sd = if (n_rep > 1) apply(drops, 2, stats::sd) else NA_real_)
+                    sd = if (n_rep > 1) apply(drops, 2, sd_1n) else NA_real_)
   out[order(-out$importance), , drop = FALSE]
 }
 
@@ -46,8 +46,10 @@ importance_rows <- function(n, size, seed = 1) {
 # with |beta_j| * s_j, s_j the standard deviation (1/n) of column j of the
 # design matrix built on the training set after the recipe (x_train), and the
 # odds ratios exp(beta) with 95 % Wald intervals from `unweighted`, a fit of
-# the same predictors without weights or resampling. Wald intervals assume
-# independent observations. se: Wald standard error of the unweighted fit.
+# the same predictors without weights or resampling and with the same
+# reference levels. Wald intervals assume independent observations. se: Wald
+# standard error of the ranked model; separation: TRUE for a 0/1 column whose
+# se exceeds SEPARATION_SE (on a numeric column the se depends on its scale).
 # Sorted by decreasing standardized coefficient.
 logistic_importance <- function(model, x_train, unweighted = model) {
   stopifnot(model$type == "glm", unweighted$type == "glm")
@@ -56,13 +58,15 @@ logistic_importance <- function(model, x_train, unweighted = model) {
   terms <- setdiff(names(beta)[!is.na(beta)], "(Intercept)")
   s <- vapply(terms, function(j) sd_1n(design[, j]), numeric(1))
   odds <- exp(cbind(stats::coef(unweighted$fit), stats::confint.default(unweighted$fit)))
-  se <- sqrt(diag(stats::vcov(unweighted$fit)))
-  # A term absent from the unweighted fit (level lost by resampling) gets NA.
+  se <- sqrt(diag(stats::vcov(model$fit)))[terms]
+  binary <- vapply(terms, function(j) all(design[, j] %in% c(0, 1)), logical(1))
+  # NA for a term the unweighted fit cannot estimate.
   idx <- match(terms, rownames(odds))
   out <- data.frame(term = terms, coefficient = unname(beta[terms]), sd = unname(s),
                     standardized = abs(unname(beta[terms])) * unname(s),
                     odds_ratio = odds[idx, 1], lower = odds[idx, 2], upper = odds[idx, 3],
-                    se = unname(se[match(terms, names(se))]), row.names = NULL)
+                    se = unname(se), separation = unname(binary & se > SEPARATION_SE),
+                    row.names = NULL)
   out[order(-out$standardized), , drop = FALSE]
 }
 
@@ -76,6 +80,7 @@ SEPARATION_SE <- 5
 design_matrix <- function(model, x) {
   x <- as.data.frame(x)[model$columns]
   x[] <- lapply(x, function(v) if (is.logical(v)) as.numeric(v) else v)
+  x <- apply_fallback(model, x)
   for (v in names(model$levels)) x[[v]] <- factor(as.character(x[[v]]), levels = model$levels[[v]])
   stats::model.matrix(stats::delete.response(stats::terms(model$fit)), data = x,
                       contrasts.arg = model$fit$contrasts)
@@ -86,7 +91,9 @@ design_matrix <- function(model, x) {
 # per variable), and for the logistic regression the standardized
 # coefficients and odds ratios. The odds ratios come from a fit without
 # weights or resampling: refitted on the training set after the recipe when a
-# rebalancing was used. timings: seconds per part.
+# rebalancing was used, with the reference levels of the ranked model so that
+# each odds ratio and its coefficient describe the same contrast. timings:
+# seconds per part.
 compute_importances <- function(trained, size = 1000, n_rep = 1, seed = 1) {
   test <- trained$split$test
   rows <- importance_rows(length(test$y), size, seed)
@@ -108,7 +115,8 @@ compute_importances <- function(trained, size = 1000, n_rep = 1, seed = 1) {
     unweighted <- r$model
     if (!identical(r$balance$method, "none")) {
       y_train <- trained$split$train$y[r$recipe$kept_rows]
-      unweighted <- fit_model("glm", r$recipe$train, y_train)
+      unweighted <- fit_model("glm", r$recipe$train, y_train,
+                              reference = lapply(r$model$levels, `[`, 1))
     }
     logistic <- logistic_importance(r$model, r$recipe$train, unweighted)
     timings[["glm_coefficients"]] <- proc.time()[["elapsed"]] - started
