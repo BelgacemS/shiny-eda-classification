@@ -7,12 +7,7 @@ confusion <- function(y, score, threshold = 0.5) {
   if (!is.numeric(threshold) || length(threshold) != 1 || is.na(threshold)) {
     stop("le seuil doit être un nombre.", call. = FALSE)
   }
-  if (length(y) != length(score)) {
-    stop("y et les scores n'ont pas la même longueur.", call. = FALSE)
-  }
-  if (anyNA(y) || !all(y %in% c(0, 1)) || anyNA(score)) {
-    stop("la cible doit valoir 0 ou 1 et les scores être renseignés.", call. = FALSE)
-  }
+  check_scores(y, score)
   predicted <- score >= threshold
   actual <- y == 1
   structure(
@@ -48,4 +43,120 @@ confusion_table <- function(cm) {
   # Filled by column: predicted positive (TP, FP), then predicted negative (FN, TN).
   matrix(c(cm[["tp"]], cm[["fp"]], cm[["fn"]], cm[["tn"]]), nrow = 2,
          dimnames = list(Observé = c("positif", "négatif"), Prédit = c("positif", "négatif")))
+}
+
+check_scores <- function(y, score) {
+  if (length(y) != length(score)) {
+    stop("y et les scores n'ont pas la même longueur.", call. = FALSE)
+  }
+  if (anyNA(y) || !all(y %in% c(0, 1)) || anyNA(score)) {
+    stop("la cible doit valoir 0 ou 1 et les scores être renseignés.", call. = FALSE)
+  }
+}
+
+# Confusion counts, precision, recall and F1 at one threshold.
+threshold_metrics <- function(y, score, threshold) {
+  cm <- confusion(y, score, threshold)
+  list(threshold = threshold, confusion = cm,
+       metrics = c(precision = precision(cm), recall = recall(cm), f1 = f1(cm)))
+}
+
+# --- ROC, AUC and threshold choice (PLAN.md, step E11a) ----------------------
+
+# ROC curve and AUC by pROC, with levels and direction fixed: "auto" would
+# flip the curve of a model worse than chance and inflate its AUC (Robin et
+# al., 2011). Higher scores mean class 1. list(auc, fpr, tpr), fpr increasing;
+# NA and no curve when one class is missing.
+roc_curve <- function(y, score) {
+  check_scores(y, score)
+  if (length(unique(y)) < 2) {
+    return(list(auc = NA_real_, fpr = numeric(0), tpr = numeric(0)))
+  }
+  r <- pROC::roc(response = y, predictor = score, levels = c(0, 1), direction = "<", quiet = TRUE)
+  list(auc = as.numeric(r$auc), fpr = rev(1 - r$specificities), tpr = rev(r$sensitivities))
+}
+
+# Thresholds offered in the app: the threshold sliders move on this grid, so
+# the threshold chosen here is exactly a value the slider can show.
+THRESHOLD_GRID <- round(seq(0, 1, by = 0.001), 3)
+
+# F1 at every threshold of grid (a row is predicted positive when score >= t).
+# Counts of scores >= t come from the sorted scores: findInterval(left.open =
+# TRUE) gives the number of values strictly below t.
+f1_curve <- function(y, score, grid = THRESHOLD_GRID) {
+  check_scores(y, score)
+  pos <- sort(score[y == 1])
+  neg <- sort(score[y == 0])
+  tp <- length(pos) - findInterval(grid, pos, left.open = TRUE)
+  fp <- length(neg) - findInterval(grid, neg, left.open = TRUE)
+  fn <- length(pos) - tp
+  denominator <- 2 * tp + fp + fn
+  values <- 2 * tp / denominator
+  values[denominator == 0] <- NA_real_
+  values
+}
+
+# Threshold of maximal F1 on the grid; the smallest one in case of a tie.
+best_f1_threshold <- function(y, score, grid = THRESHOLD_GRID) {
+  values <- f1_curve(y, score, grid)
+  if (all(is.na(values))) {
+    return(0.5)
+  }
+  grid[which.max(values)]
+}
+
+# Naive references for a comparison table: a constant score (AUC 0.5 whatever
+# the constant) and the rule "every row positive" (precision = prevalence,
+# recall = 1, F1 = 2 p / (1 + p)).
+naive_metrics <- function(y) {
+  list(constant_auc = roc_curve(y, rep(0.5, length(y)))$auc,
+       all_positive = threshold_metrics(y, rep(1, length(y)), 0.5))
+}
+
+# --- Leak alert ----------------------------------------------------------------
+
+# Above this univariate AUC a predictor is almost a copy of the target.
+LEAK_AUC <- 0.95
+
+# AUC of each predictor taken alone, learned on the training set and measured
+# on an evaluation set, then max(AUC, 1 - AUC): the alert measures the
+# strength of the link, not its direction. Quanti: the value itself, on the
+# complete cases. Quali: the share of positives of the level in training, NA
+# as a level of its own, a level unseen in training scored with the training
+# prevalence (so a column with one level per row stays near 0.5 instead of
+# being learned on its own rows). 0.5 for a constant column, NA for a column
+# without values or when the evaluation set has a single class; never an error.
+univariate_auc <- function(x_train, y_train, x_eval, y_eval) {
+  x_train <- as.data.frame(x_train)
+  x_eval <- as.data.frame(x_eval)
+  vapply(stats::setNames(names(x_train), names(x_train)), function(v) {
+    tryCatch(univariate_auc_one(x_train[[v]], y_train, x_eval[[v]], y_eval),
+             error = function(e) NA_real_)
+  }, numeric(1))
+}
+
+univariate_auc_one <- function(train, y_train, eval, y_eval) {
+  if (is.null(eval) || all(is.na(train)) || all(is.na(eval))) {
+    return(NA_real_)
+  }
+  if (is.numeric(eval)) {
+    keep <- !is.na(eval)
+    score <- eval[keep]
+    y <- y_eval[keep]
+  } else {
+    na_level <- "\u0001NA"
+    key <- function(v) ifelse(is.na(v), na_level, as.character(v))
+    rates <- tapply(y_train, key(train), mean)
+    score <- unname(rates[key(eval)])
+    score[is.na(score)] <- mean(y_train)
+    y <- y_eval
+  }
+  if (length(unique(y)) < 2) {
+    return(NA_real_)
+  }
+  if (is_constant(score)) {
+    return(0.5)
+  }
+  auc <- roc_curve(y, score)$auc
+  max(auc, 1 - auc)
 }

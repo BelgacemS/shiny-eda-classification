@@ -344,7 +344,7 @@ Couvre : l'exploration (A.2) et le début de la modélisation (A.3).
 
 Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
 
-- [ ] **E11a. ROC, AUC, seuil et comparaison**
+- [x] **E11a. ROC, AUC, seuil et comparaison**
   - Dépend de : E10b.
   - Objectif : évaluation comparative des modèles, choix sur la validation, test évalué à la demande avec des seuils figés.
   - Contenu :
