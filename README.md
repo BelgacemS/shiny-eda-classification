@@ -46,9 +46,9 @@ Rscript deploy.R
 
 Free plan limits that apply to this app (checked on 2026-11-06):
 
-- memory: `large` instance, 1024 MB (`rsconnect::showProperties()`, shinyapps.io guide);
-- bundle size: 1 GB;
-- active hours: 25 for the account (5 applications at most), shinyapps.io pricing page;
+- memory: `large` instance, 1024 MB (`rsconnect::showProperties()` and shinyapps.io guide, checked on 2026-11-08);
+- bundle size: 1 GB on the Free and Starter plans (shinyapps.io guide, applications page, checked on 2026-11-08);
+- active hours: 25 for the account (5 applications at most), shinyapps.io home page plan table (checked on 2026-11-08); consumption is read with the `showUsage()` command below;
 - instance idle timeout: 5 minutes (`application.instances.idle-threshold`, set with `rsconnect::setProperty()` on 2026-11-06). The value read back right after the change was still 15, but it applied from the next instance start: in the container start and stop events of `rsconnect::showLogs()`, the instance ran 15.7 minutes on the afternoon of 2026-11-06, then stopped about 6 minutes after the last session from that evening on. Active hours count instance uptime, so a visit costs its own length plus about 6 minutes.
 
 Memory and active hours of the deployed app (series names from the shinyapps.io metrics guide). `total_rss` is in bytes, for the whole instance, one value per minute; run the first command within the hour after the test. `showUsage()` counts this app only, not the other apps of the account:
