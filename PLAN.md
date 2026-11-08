@@ -317,7 +317,7 @@ Couvre : l'exploration (A.2) et le début de la modélisation (A.3).
     - le mode par variable met exactement les bonnes lignes en test.
   - Hors périmètre : modèles, ROC, AUC.
 
-- [ ] **E10b. Deux modèles dans l'onglet Modélisation**
+- [x] **E10b. Deux modèles dans l'onglet Modélisation**
   - Dépend de : E6a, E10a.
   - Objectif : chaîne complète dans l'app, de la cible à la matrice de confusion.
   - Contenu :
