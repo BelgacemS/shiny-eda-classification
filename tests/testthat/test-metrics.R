@@ -236,3 +236,25 @@ test_that("AUC 0 or 1 and a single row of a class give no warning nor error", {
   expect_length(status$leak, 0)
   expect_equal(status$caution, c("up", "down"))
 })
+
+test_that("leak_status needs an AUC and a bound strictly above LEAK_AUC and 30 rows of each class", {
+  d <- data.frame(variable = c("at", "na_bound", "few_neg", "few_pos", "ok"),
+                  auc = c(LEAK_AUC, 0.99, 0.99, 0.99, 0.99),
+                  lower = c(LEAK_AUC, NA_real_, 0.98, 0.98, 0.98),
+                  n_pos = c(40L, 40L, 40L, 29L, 30L),
+                  n_neg = c(40L, 40L, 29L, 40L, 30L))
+  status <- leak_status(d)
+  expect_equal(status$leak, "ok")
+  # An AUC of exactly LEAK_AUC is not reported at all; a bound that cannot be
+  # computed, or 29 rows of either class, gives caution.
+  expect_equal(status$caution, c("na_bound", "few_neg", "few_pos"))
+})
+
+test_that("the counts are the complete cases for a quanti column and all rows for a quali one", {
+  y <- c(0, 0, 0, 1, 1, 1)
+  x <- data.frame(q = c(1, NA, 2, 3, NA, 4), g = factor(c("a", NA, "a", "b", NA, "b")))
+  d <- univariate_auc_details(x, y, x, y)
+  expect_equal(d$n_pos, c(2L, 3L))
+  expect_equal(d$n_neg, c(2L, 3L))
+})
+

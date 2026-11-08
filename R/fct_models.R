@@ -324,7 +324,7 @@ train_pipeline <- function(dataset, recipe, settings) {
   if (length(status$caution) > 0) {
     messages <- c(messages, sprintf(paste0(
       "Liaison très forte avec la cible (AUC univariée sur la validation supérieure à %s) : %s. ",
-      "La validation est trop petite pour conclure à une fuite (moins de %d lignes d'une classe, ",
+      "La validation ne suffit pas pour conclure à une fuite (moins de %d lignes d'une classe, ",
       "ou intervalle de confiance trop large) : vérifier que ces variables ne sont pas dérivées de la cible."),
       format_number(LEAK_AUC, 2), paste(status$caution, collapse = ", "), LEAK_MIN_PER_CLASS))
   }
