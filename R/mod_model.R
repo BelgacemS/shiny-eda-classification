@@ -1,7 +1,8 @@
-# Tab 4: modelling. E10b: target, predictors, sample, split, recipe fitted on
-# the training set, logistic regression and random forest, metrics at
-# threshold 0.5 on the internal validation set. The test set is kept for the
-# evaluation button of E11a.
+# Tab 4: modelling. Target, predictors, sample, split, recipe fitted on the
+# training set, logistic regression, random forest and tree (E10b). On the
+# internal validation set: ROC, AUC, one threshold slider per model set at the
+# maximal F1, comparison table with naive references (E11a). The test set is
+# evaluated on a button only, with the thresholds fixed at that moment.
 
 SPLIT_MODE_CHOICES <- c("Stratifié" = "stratified", "Groupé par identifiant" = "grouped",
                         "Par variable (test = valeurs choisies)" = "variable")
@@ -30,9 +31,8 @@ mod_model_ui <- function(id) {
       sliderInput(ns("test_prop"), "Part du test", min = 0.1, max = 0.5, value = 0.2, step = 0.05),
       sliderInput(ns("valid_prop"), "Part de la validation (dans l'entraînement)",
                   min = 0.1, max = 0.5, value = 0.25, step = 0.05),
-      checkboxGroupInput(ns("models"), "Modèles",
-                         c("Régression logistique" = "glm", "Forêt aléatoire" = "ranger"),
-                         selected = c("glm", "ranger")),
+      checkboxGroupInput(ns("models"), "Modèles", stats::setNames(names(MODEL_LABELS), MODEL_LABELS),
+                         selected = names(MODEL_LABELS)),
       numericInput(ns("seed"), "Graine", value = 1, min = 1, step = 1),
       actionButton(ns("train"), "Entraîner", class = "btn-primary"),
       width = 4
@@ -43,11 +43,23 @@ mod_model_ui <- function(id) {
       h4("Répartition de la cible"),
       tableOutput(ns("distribution")),
       uiOutput(ns("messages")),
-      h4("Validation interne, seuil 0,5"),
-      helpText("Le seuil de chaque modèle et l'évaluation sur le test arrivent à l'étape suivante.",
-               "La recette de l'onglet Prétraitement est ajustée sur l'entraînement seul."),
+      h4("Validation interne : seuils et comparaison"),
+      helpText("La recette de l'onglet Prétraitement est ajustée sur l'entraînement seul.",
+               "Chaque seuil part du F1 maximal sur la validation interne et se règle au curseur ;",
+               "un individu est prédit positif quand sa probabilité atteint le seuil.",
+               "L'AUC ne dépend pas du seuil : c'est le critère principal de comparaison."),
+      uiOutput(ns("thresholds")),
       tableOutput(ns("metrics")),
+      plotOutput(ns("roc_valid"), height = "380px"),
       uiOutput(ns("confusions")),
+      h4("Test"),
+      helpText("Le test n'est évalué qu'à la demande, avec les seuils courants, alors figés :",
+               "déplacer un curseur ensuite ne change pas ces résultats. Un nouvel entraînement les efface."),
+      actionButton(ns("evaluate"), "Évaluer sur le test"),
+      textOutput(ns("test_info")),
+      tableOutput(ns("test_metrics")),
+      plotOutput(ns("roc_test"), height = "380px"),
+      uiOutput(ns("test_confusions")),
       width = 8
     )
   )
@@ -121,6 +133,12 @@ mod_model_server <- function(id, dataset_clean, recipe) {
     # so that results never sit next to data they were not computed on.
     trained <- reactiveVal(NULL)
     observeEvent(list(dataset_clean(), recipe()), trained(NULL), ignoreInit = TRUE)
+    # Test results exist only after the button, and go with the training.
+    tested <- reactiveVal(NULL)
+    observeEvent(trained(), tested(NULL), ignoreNULL = FALSE)
+    # Each training gets new slider ids, so that a slider value of a previous
+    # training is never read as the threshold of the new models.
+    run <- reactiveVal(0)
 
     observeEvent(input$train, {
       trained(NULL)
@@ -140,7 +158,46 @@ mod_model_server <- function(id, dataset_clean, recipe) {
           NULL
         }
       )
+      if (!is.null(result)) {
+        run(run() + 1)
+        if (length(result$leak) > 0) {
+          showNotification(grep("^Liaison quasi parfaite", result$messages, value = TRUE),
+                           type = "warning", duration = NULL)
+        }
+      }
       trained(result)
+    })
+
+    slider_id <- function(type) paste0("threshold_", type, "_", run())
+
+    output$thresholds <- renderUI({
+      out <- trained()
+      req(out)
+      tagList(lapply(names(out$results), function(type) {
+        sliderInput(session$ns(slider_id(type)), paste("Seuil :", MODEL_LABELS[[type]]),
+                    min = 0, max = 1, step = 0.001, value = out$results[[type]]$threshold)
+      }))
+    })
+
+    # Current thresholds: the slider value once the browser has sent it,
+    # otherwise the threshold of maximal F1.
+    thresholds <- reactive({
+      out <- trained()
+      req(out)
+      vapply(names(out$results), function(type) {
+        value <- input[[slider_id(type)]]
+        if (is.null(value) || is.na(value)) out$results[[type]]$threshold else value
+      }, numeric(1))
+    })
+
+    valid_metrics <- reactive({
+      out <- trained()
+      req(out)
+      thr <- thresholds()
+      lapply(stats::setNames(names(out$results), names(out$results)), function(type) {
+        r <- out$results[[type]]
+        c(threshold_metrics(out$split$valid$y, r$prob_valid, thr[[type]]), list(roc = r$roc))
+      })
     })
 
     output$trained_for <- renderText({
@@ -168,37 +225,115 @@ mod_model_server <- function(id, dataset_clean, recipe) {
       tags$ul(lapply(unique(notes), tags$li))
     })
 
-    output$metrics <- renderTable({
-      out <- trained()
-      req(out)
-      rows <- lapply(names(out$results), function(type) {
-        m <- out$results[[type]]$metrics
-        data.frame(Modèle = MODEL_LABELS[[type]], Precision = format_metric(m[["precision"]]),
-                   Recall = format_metric(m[["recall"]]), F1 = format_metric(m[["f1"]]),
-                   check.names = FALSE)
-      })
-      do.call(rbind, rows)
-    }, align = "lrrr")
+    output$metrics <- renderTable(comparison_table(valid_metrics(), trained()$naive_valid),
+                                  align = "lrrrrr")
+    output$roc_valid <- renderPlot(roc_plot(valid_metrics(), "Courbes ROC sur la validation interne"))
+    output$confusions <- renderUI(confusion_tables(valid_metrics()))
 
-    output$confusions <- renderUI({
+    observeEvent(input$evaluate, {
       out <- trained()
-      req(out)
-      tagList(lapply(names(out$results), function(type) {
-        tab <- confusion_table(out$results[[type]]$confusion)
-        tagList(
-          h5(paste("Matrice de confusion :", MODEL_LABELS[[type]])),
-          tags$table(
-            class = "table table-condensed", style = "width: auto;",
-            tags$thead(tags$tr(tags$th("Observé \\ Prédit"), tags$th("positif"), tags$th("négatif"))),
-            tags$tbody(
-              tags$tr(tags$th("positif"), tags$td(tab[1, 1]), tags$td(tab[1, 2])),
-              tags$tr(tags$th("négatif"), tags$td(tab[2, 1]), tags$td(tab[2, 2]))
-            )
-          )
-        )
-      }))
+      if (is.null(out)) {
+        showNotification("Entraîner les modèles avant d'évaluer le test.", type = "error")
+        return()
+      }
+      result <- tryCatch(
+        evaluate_test(out, thresholds()),
+        error = function(e) {
+          showNotification(paste("Évaluation impossible :", conditionMessage(e)),
+                           type = "error", duration = NULL)
+          NULL
+        }
+      )
+      tested(result)
+    })
+
+    output$test_info <- renderText({
+      res <- tested()
+      req(res)
+      paste0("Seuils figés à l'évaluation : ", paste(
+        vapply(names(res$results), function(type) {
+          paste(MODEL_LABELS[[type]], format_number(res$results[[type]]$threshold, 3))
+        }, character(1)), collapse = " ; "), ".")
+    })
+    output$test_metrics <- renderTable({
+      res <- tested()
+      req(res)
+      comparison_table(res$results, res$naive)
+    }, align = "lrrrrr")
+    output$roc_test <- renderPlot({
+      res <- tested()
+      req(res)
+      roc_plot(res$results, "Courbes ROC sur le test")
+    })
+    output$test_confusions <- renderUI({
+      res <- tested()
+      req(res)
+      confusion_tables(res$results)
     })
   })
+}
+
+# Comparison table: one row per model (AUC, threshold, precision, recall, F1),
+# then the naive references. evaluations: per model, a list with threshold,
+# metrics and roc.
+comparison_table <- function(evaluations, naive) {
+  rows <- lapply(names(evaluations), function(type) {
+    e <- evaluations[[type]]
+    data.frame(Modèle = MODEL_LABELS[[type]], AUC = format_metric(e$roc$auc),
+               Seuil = format_number(e$threshold, 3),
+               Precision = format_metric(e$metrics[["precision"]]),
+               Recall = format_metric(e$metrics[["recall"]]), F1 = format_metric(e$metrics[["f1"]]),
+               check.names = FALSE)
+  })
+  m <- naive$all_positive$metrics
+  rows <- c(rows, list(
+    data.frame(Modèle = "Référence : score constant", AUC = format_metric(naive$constant_auc),
+               Seuil = "", Precision = "", Recall = "", F1 = "", check.names = FALSE),
+    data.frame(Modèle = "Référence : tout positif", AUC = "", Seuil = "",
+               Precision = format_metric(m[["precision"]]), Recall = format_metric(m[["recall"]]),
+               F1 = format_metric(m[["f1"]]), check.names = FALSE)
+  ))
+  do.call(rbind, rows)
+}
+
+# Superposed ROC curves, with the diagonal of a constant score (AUC 0.5).
+roc_plot <- function(evaluations, title) {
+  curves <- do.call(rbind, lapply(names(evaluations), function(type) {
+    roc <- evaluations[[type]]$roc
+    if (length(roc$fpr) == 0) return(NULL)
+    data.frame(fpr = roc$fpr, tpr = roc$tpr,
+               model = sprintf("%s (AUC %s)", MODEL_LABELS[[type]], format_metric(roc$auc)))
+  }))
+  req(!is.null(curves))
+  curves$model <- factor(curves$model, levels = unique(curves$model))  # order of the table
+  ggplot2::ggplot(curves, ggplot2::aes(x = fpr, y = tpr, colour = model)) +
+    ggplot2::geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey55") +
+    ggplot2::geom_path(linewidth = 0.8) +
+    ggplot2::coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
+    ggplot2::labs(title = title, x = "Taux de faux positifs (1 - spécificité)",
+                  y = "Taux de vrais positifs (sensibilité, Recall)", colour = NULL) +
+    ggplot2::theme_minimal(base_size = 13) +
+    ggplot2::theme(legend.position = "bottom", legend.direction = "vertical")
+}
+
+# One 2 x 2 confusion table per model.
+confusion_tables <- function(evaluations) {
+  tagList(lapply(names(evaluations), function(type) {
+    e <- evaluations[[type]]
+    tab <- confusion_table(e$confusion)
+    tagList(
+      h5(sprintf("Matrice de confusion : %s (seuil %s)", MODEL_LABELS[[type]],
+                 format_number(e$threshold, 3))),
+      tags$table(
+        class = "table table-condensed", style = "width: auto;",
+        tags$thead(tags$tr(tags$th("Observé \\ Prédit"), tags$th("positif"), tags$th("négatif"))),
+        tags$tbody(
+          tags$tr(tags$th("positif"), tags$td(tab[1, 1]), tags$td(tab[1, 2])),
+          tags$tr(tags$th("négatif"), tags$td(tab[2, 1]), tags$td(tab[2, 2]))
+        )
+      )
+    )
+  }))
 }
 
 # French message when the settings cannot be used, NULL otherwise.

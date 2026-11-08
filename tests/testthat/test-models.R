@@ -6,10 +6,10 @@ simulated <- function(n = 400, seed = 1) {
   list(x = data.frame(x = x, g = g), y = y)
 }
 
-test_that("probabilities are in [0, 1], one per test row, for both models", {
+test_that("probabilities are in [0, 1], one per test row, for every model", {
   train <- simulated(seed = 1)
   test <- simulated(n = 137, seed = 2)
-  for (type in c("glm", "ranger")) {
+  for (type in names(MODEL_LABELS)) {
     model <- fit_model(type, train$x, train$y)
     prob <- predict_proba(model, test$x)
     expect_length(prob, 137L)
@@ -32,7 +32,7 @@ test_that("the coefficient of x is positive, and negative with the other level a
 test_that("a constant variable or a one-level factor does not break training", {
   d <- simulated(seed = 4)
   x <- cbind(d$x, k = 0.1, one = factor("seul"), empty_level = factor("u", levels = c("u", "v")))
-  for (type in c("glm", "ranger")) {
+  for (type in names(MODEL_LABELS)) {
     model <- fit_model(type, x, d$y)
     expect_setequal(model$dropped, c("k", "one", "empty_level"))
     expect_match(model$messages[1], "retirées")
@@ -89,12 +89,13 @@ test_that("missing values after the recipe, other classes and one-class targets 
   expect_error(fit_model("svm", d$x, d$y), "inconnu")
 })
 
-test_that("an unseen level at prediction time gives a clear message for the logistic regression", {
+test_that("an unseen level at prediction time gives a clear message for the logistic regression and the tree", {
   d <- simulated(seed = 8)
-  model <- fit_model("glm", d$x, d$y)
   new <- d$x[1:2, ]
   new$g <- factor(c("a", "zzz"))
-  expect_error(predict_proba(model, new), "modalité inconnue")
+  for (type in c("glm", "rpart")) {
+    expect_error(predict_proba(fit_model(type, d$x, d$y), new), "modalité inconnue")
+  }
 })
 
 test_that("the whole pipeline runs on students.csv with Sex as target", {
@@ -226,9 +227,11 @@ test_that("the recipe sees the training set only, and the metrics use the valida
     r <- out$results[[type]]
     # Recipe parameters equal those learned on the training rows alone.
     expect_equal(r$recipe$params, fit_recipe(recipe, out$split$train$x, types)$params)
-    # Validation probabilities and confusion matrix are those of the validation set.
+    # Validation probabilities, threshold and confusion matrix come from the validation set.
     expect_equal(r$prob_valid, predict_proba(r$model, apply_recipe(r$recipe, out$split$valid$x)))
-    expect_equal(r$confusion, confusion(out$split$valid$y, r$prob_valid, 0.5))
+    expect_equal(r$threshold, best_f1_threshold(out$split$valid$y, r$prob_valid))
+    expect_equal(r$confusion, confusion(out$split$valid$y, r$prob_valid, r$threshold))
+    expect_equal(r$roc$auc, roc_curve(out$split$valid$y, r$prob_valid)$auc)
   }
 })
 
@@ -306,4 +309,138 @@ test_that("no informative column and missing values at prediction give French me
   expect_error(fit_model("ranger", data.frame(k = rep(1, 20)), rep(0:1, 10)), "aucune variable")
   model <- fit_model("glm", data.frame(x = 1:20 + rnorm(20)), rep(0:1, 10))
   expect_error(predict_proba(model, data.frame(x = c(1, NA))), "imputation")
+})
+
+# --- E11a: tree, reduced QR, thresholds, test on demand, leak alert -----------------
+
+test_that("fitting and predicting with any model leaves the global random state untouched", {
+  # The server shares one random state between sessions; rpart draws from it
+  # for its internal cross-validation unless xval = 0.
+  d <- simulated(seed = 14)
+  set.seed(99)
+  state <- .Random.seed
+  for (type in names(MODEL_LABELS)) {
+    model <- fit_model(type, d$x, d$y)
+    invisible(predict_proba(model, d$x))
+    expect_identical(.Random.seed, state, info = type)
+  }
+})
+
+test_that("the reduced QR keeps predictions and Wald intervals of the full logistic regression", {
+  withr::local_seed(15)
+  n <- 800
+  x <- data.frame(a = rnorm(n), f = factor(sample(c("p", "q", "r"), n, TRUE)),
+                  b = runif(n))
+  x$a2 <- 2 * x$a + 1  # collinear with a: one coefficient is not estimable
+  x$g <- factor(ifelse(x$f == "p", "P", "autre"))  # nested in f
+  y <- stats::rbinom(n, 1, stats::plogis(x$a + (x$f == "q")))
+  new <- x[sample(n, 200), ]
+  for (w in list(NULL, stats::runif(n, 0.2, 3))) {
+    model <- fit_model("glm", x, y, weights = w)
+    expect_true(anyNA(stats::coef(model$fit)))
+    p <- ncol(model$fit$qr$qr)
+    expect_equal(nrow(model$fit$qr$qr), p)
+    # Reference: the same fit by glm() with the same reference levels, full QR kept.
+    data <- x
+    for (v in names(model$levels)) data[[v]] <- factor(data[[v]], levels = model$levels[[v]])
+    data$..y <- y
+    ref_w <- if (is.null(w)) rep(1, n) else w
+    family <- if (is.null(w)) stats::binomial() else stats::quasibinomial()
+    reference <- stats::glm(..y ~ ., data = data, family = family, weights = ref_w)
+    expect_gt(nrow(reference$qr$qr), p)
+    newdata <- new
+    for (v in names(model$levels)) newdata[[v]] <- factor(newdata[[v]], levels = model$levels[[v]])
+    expected <- unname(suppressWarnings(stats::predict(reference, newdata = newdata, type = "response")))
+    expect_identical(suppressWarnings(predict_proba(model, new)), expected)
+    expect_equal(stats::confint.default(model$fit), stats::confint.default(reference))
+  }
+})
+
+test_that("the thresholds do not depend on the test labels", {
+  # Split by variable: the test rows are the 2024 ones whatever their labels,
+  # and the validation set is drawn from the training rows only.
+  ds <- pipeline_data()
+  s <- pipeline_settings(group = NULL, mode = "variable", by = "year", test_values = "2024")
+  a <- train_pipeline(ds, default_recipe(), s)
+  flipped <- ds
+  in_test <- ds$data$year == 2024
+  flipped$data$y[in_test] <- ifelse(ds$data$y[in_test] == "oui", "non", "oui")
+  b <- train_pipeline(flipped, default_recipe(), s)
+  for (type in names(a$results)) {
+    expect_identical(a$results[[type]]$threshold, b$results[[type]]$threshold)
+    expect_identical(a$results[[type]]$prob_valid, b$results[[type]]$prob_valid)
+  }
+  thr <- vapply(a$results, `[[`, numeric(1), "threshold")
+  expect_false(identical(evaluate_test(a, thr)$results$glm$metrics,
+                         evaluate_test(b, thr)$results$glm$metrics))
+})
+
+test_that("the test evaluation uses the fixed thresholds and the fitted recipes only", {
+  ds <- pipeline_data()
+  recipe <- utils::modifyList(default_recipe(), list(scale = list(method = "standard")))
+  out <- train_pipeline(ds, recipe, pipeline_settings())
+  thr <- c(glm = 0.3, ranger = 0.6)
+  res <- evaluate_test(out, thr)
+  for (type in names(thr)) {
+    r <- out$results[[type]]
+    prob <- predict_proba(r$model, apply_recipe(r$recipe, out$split$test$x))
+    expect_equal(res$results[[type]]$threshold, thr[[type]])
+    expect_equal(res$results[[type]]$confusion, confusion(out$split$test$y, prob, thr[[type]]))
+    expect_equal(res$results[[type]]$roc$auc, roc_curve(out$split$test$y, prob)$auc)
+  }
+  expect_equal(res$naive$all_positive$metrics[["precision"]], mean(out$split$test$y))
+  expect_error(evaluate_test(out, c(glm = 0.3)), "seuil manquant")
+})
+
+test_that("a predictor copying the target raises the leak alert in the pipeline", {
+  ds <- pipeline_data()
+  ds$data$copy <- factor(as.character(ds$data$y))
+  ds$var_types[["copy"]] <- "quali"
+  out <- train_pipeline(ds, default_recipe(), pipeline_settings(predictors = c("x", "g", "copy")))
+  expect_equal(out$leak, "copy")
+  expect_equal(out$univariate_auc[["copy"]], 1)
+  expect_match(out$messages, "Liaison quasi parfaite.*copy", all = FALSE)
+  clean <- train_pipeline(ds, default_recipe(), pipeline_settings())
+  expect_length(clean$leak, 0)
+})
+
+test_that("the test set is evaluated only on the button, with frozen thresholds", {
+  withr::local_seed(16)
+  n <- 400
+  data <- data.frame(y = factor(sample(c("non", "oui"), n, TRUE, prob = c(0.7, 0.3))),
+                     x = rnorm(n), g = factor(sample(c("a", "b"), n, TRUE)))
+  data$x <- data$x + (data$y == "oui")
+  ds <- make_dataset(data, c(y = "quali", x = "quanti", g = "quali"))
+  calls <- 0
+  shiny::testServer(mod_model_server,
+                    args = list(dataset_clean = shiny::reactive(ds),
+                                recipe = shiny::reactive(default_recipe())), {
+    session$setInputs(target = "y", positive = "oui", predictors = c("x", "g"), sample_size = n,
+                      group = NO_GROUP, mode = "stratified", test_prop = 0.2, valid_prop = 0.25,
+                      models = c("glm", "rpart"), seed = 1, train = 1)
+    out <- trained()
+    expect_false(is.null(out))
+    expect_null(tested())
+    expect_match(output$metrics, "Référence : tout positif")
+    # Thresholds start at the maximal F1 of the validation set.
+    expect_equal(thresholds()[["glm"]], out$results$glm$threshold)
+    # Moving a slider changes the validation metrics.
+    before <- output$metrics
+    session$setInputs(threshold_glm_1 = 0.9)
+    expect_equal(thresholds()[["glm"]], 0.9)
+    expect_false(identical(output$metrics, before))
+    session$setInputs(evaluate = 1)
+    res <- tested()
+    expect_equal(res$results$glm$threshold, 0.9)
+    expect_match(output$test_info, "0,900")
+    frozen <- output$test_metrics
+    # Moving the slider after the evaluation leaves the test results unchanged.
+    session$setInputs(threshold_glm_1 = 0.2)
+    expect_identical(tested(), res)
+    expect_identical(output$test_metrics, frozen)
+    # A new training clears them, and its sliders get new ids.
+    session$setInputs(train = 2)
+    expect_null(tested())
+    expect_equal(thresholds()[["glm"]], trained()$results$glm$threshold)
+  })
 })

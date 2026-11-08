@@ -59,3 +59,109 @@ test_that("invalid inputs are refused with a message", {
   expect_error(confusion(c(1, 0), c(0.1, 0.9), threshold = c(0.2, 0.5)), "seuil")
   expect_error(confusion(c(1, 0), c(0.1, 0.9), threshold = NA), "seuil")
 })
+
+# --- E11a: ROC, AUC, threshold choice, naive references, leak alert ---------------
+
+test_that("the AUC of pROC equals W / (n1 n0) on a toy set with ties", {
+  y <- c(0, 0, 1, 1, 0, 1, 1, 0, 1, 0)
+  score <- c(0.1, 0.4, 0.4, 0.8, 0.4, 0.2, 0.9, 0.3, 0.4, 0.1)
+  w <- stats::wilcox.test(score[y == 1], score[y == 0], exact = FALSE)$statistic
+  # By hand: pairs (positive, negative) with the positive higher count 1, ties 1/2.
+  pos <- score[y == 1]
+  neg <- score[y == 0]
+  by_hand <- sum(outer(pos, neg, ">")) + 0.5 * sum(outer(pos, neg, "=="))
+  expect_equal(unname(w), by_hand)
+  expect_equal(roc_curve(y, score)$auc, unname(w) / (length(pos) * length(neg)))
+})
+
+test_that("the ROC direction is fixed: a reversed score gets 1 - AUC, not a flipped curve", {
+  withr::local_seed(17)
+  y <- rbinom(300, 1, 0.4)
+  score <- y + rnorm(300)
+  auc <- roc_curve(y, score)$auc
+  expect_gt(auc, 0.6)
+  expect_equal(roc_curve(y, -score)$auc, 1 - auc)
+  curve <- roc_curve(y, score)
+  expect_equal(range(curve$fpr), c(0, 1))
+  expect_true(all(diff(curve$fpr) >= 0))
+  expect_true(is.na(roc_curve(c(1, 1), c(0.2, 0.4))$auc))
+})
+
+test_that("the F1 curve equals F1 at each threshold, and the chosen threshold maximises it", {
+  withr::local_seed(18)
+  y <- rbinom(500, 1, 0.25)
+  score <- round(plogis(2 * y + rnorm(500)), 2)  # many ties
+  values <- f1_curve(y, score)
+  by_threshold <- vapply(THRESHOLD_GRID, function(t) f1(confusion(y, score, t)), numeric(1))
+  expect_equal(values, by_threshold)
+  best <- best_f1_threshold(y, score)
+  expect_true(best %in% THRESHOLD_GRID)
+  expect_equal(f1(confusion(y, score, best)), max(by_threshold, na.rm = TRUE))
+  # Ties: the smallest threshold of maximal F1.
+  expect_equal(best, THRESHOLD_GRID[which(by_threshold == max(by_threshold, na.rm = TRUE))[1]])
+})
+
+test_that("recall does not increase along the threshold grid", {
+  withr::local_seed(19)
+  y <- rbinom(300, 1, 0.3)
+  score <- runif(300)
+  recalls <- vapply(THRESHOLD_GRID, function(t) recall(confusion(y, score, t)), numeric(1))
+  expect_true(all(diff(recalls) <= 0))
+})
+
+test_that("naive references: AUC 0.5 for a constant score, prevalence and recall 1 for all positive", {
+  y <- c(1, 0, 0, 1, 0, 0, 0, 0)
+  naive <- naive_metrics(y)
+  expect_equal(naive$constant_auc, 0.5)
+  m <- naive$all_positive$metrics
+  expect_equal(m[["precision"]], 2 / 8)
+  expect_equal(m[["recall"]], 1)
+  expect_equal(m[["f1"]], 2 * 0.25 / 1.25)
+})
+
+test_that("univariate AUC flags a copy of the target and spares independent or unique-level columns", {
+  withr::local_seed(20)
+  n_train <- 400
+  n_eval <- 200
+  y_train <- rbinom(n_train, 1, 0.3)
+  y_eval <- rbinom(n_eval, 1, 0.3)
+  make <- function(y, offset) data.frame(
+    copy = factor(ifelse(y == 1, "oui", "non")),
+    increasing = 10 * y + runif(length(y)),
+    noise = rnorm(length(y)),
+    noise_quali = factor(sample(c("a", "b", "c"), length(y), TRUE)),
+    unique_level = factor(paste0("id", offset + seq_along(y))),
+    constant = 1,
+    all_na = NA_real_,
+    text = sample(c("u", "v"), length(y), TRUE),
+    stringsAsFactors = FALSE)
+  x_train <- make(y_train, 0)
+  x_eval <- make(y_eval, n_train)
+  auc <- univariate_auc(x_train, y_train, x_eval, y_eval)
+  expect_equal(auc[["copy"]], 1)
+  expect_equal(auc[["increasing"]], 1)
+  expect_lt(auc[["noise"]], LEAK_AUC)
+  expect_lt(auc[["noise_quali"]], LEAK_AUC)
+  # Every evaluation level is unseen in training: scored with the prevalence, constant.
+  expect_equal(auc[["unique_level"]], 0.5)
+  expect_equal(auc[["constant"]], 0.5)
+  expect_true(is.na(auc[["all_na"]]))
+  expect_false(is.na(auc[["text"]]))
+  # Same value for x and -x: the alert measures strength, not direction.
+  negated <- x_eval
+  negated$noise <- -negated$noise
+  expect_equal(univariate_auc(x_train, y_train, negated, y_eval)[["noise"]], auc[["noise"]])
+  # A single class in the evaluation set gives NA, without error.
+  expect_true(all(is.na(univariate_auc(x_train, y_train, x_eval, rep(0, n_eval)))))
+})
+
+test_that("NA is a level of its own and unseen levels take the training prevalence", {
+  # Training: level a always positive, NA always negative; b unseen in training.
+  x_train <- data.frame(g = factor(c("a", "a", NA, NA)))
+  y_train <- c(1, 1, 0, 0)
+  x_eval <- data.frame(g = factor(c("a", NA, "b", "b"), levels = c("a", "b")))
+  y_eval <- c(1, 0, 1, 0)
+  # Scores: a = 1, NA = 0, b = prevalence 0.5. Pairs (pos, neg): (a, NA) 1,
+  # (a, b) 1, (b, NA) 1, (b, b) 1/2: AUC = 3.5 / 4.
+  expect_equal(univariate_auc(x_train, y_train, x_eval, y_eval)[["g"]], 3.5 / 4)
+})
