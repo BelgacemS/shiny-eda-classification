@@ -468,18 +468,18 @@ Couvre : l'étude de cas (A.4).
   - Objectif : que le chemin principal (charger, choisir la cible, entraîner, évaluer) se voie d'emblée, avant que l'onglet 5 donne les réglages à rejouer (décidé le 8 novembre, après une première visite de l'app déployée).
   - Contenu :
     - options rarement modifiées regroupées dans une section « Options avancées » repliée par défaut (balise HTML `details`, sans nouvelle dépendance), avec des valeurs par défaut qui conviennent à un CSV ordinaire : onglet 1, séparateur, en-tête, encodage, marque décimale, codes manquants et colonnes concernées ; onglet 4, ratio du rééchantillonnage, parts du test et de la validation, graine, réglages des importances ; aucune option n'est retirée, le sujet les exige ;
-    - onglet 2 : imputation « Médiane » et « Modalité la plus fréquente » sélectionnées par défaut, pour qu'un entraînement marche sans passer par le Prétraitement ; `default_recipe()` reste sans imputation (fonction du contrat, utilisée par les tests), seule la valeur initiale de l'interface change ;
-    - importance de la logistique (déplacé de E14) : signaler une variable quand une part importante de ses lignes permutées est non estimable, avec un seuil à fixer (sur BAAC, 557 lignes sur 1 000 pour `catv` et 150 chacune pour `catu` et `place`, à cause des variables emboîtées) ; son importance dépend alors de valeurs arbitraires.
-  - Fichiers : `R/mod_data.R`, `R/mod_preprocess.R`, `R/mod_model.R`, `R/fct_importance.R`, `tests/testthat/test-data.R`, `tests/testthat/test-preprocess.R`, `tests/testthat/test-importance.R`.
+    - onglet 2 : imputation « Médiane » et « Modalité la plus fréquente » au départ, pour qu'un entraînement marche sans passer par le Prétraitement ; `default_recipe()` reste sans imputation (fonction du contrat) ; une même constante fixe la valeur initiale de l'interface et le repli de `build_recipe()` quand l'entrée est encore vide, et le test du contrat qui compare la recette sans action à `default_recipe()` est adapté ;
+    - importance de la logistique (déplacé de E14, facultatif, voir « Si le temps manque ») : signaler une variable quand une part importante de ses lignes permutées est non estimable, avec un seuil à fixer sur l'échantillon BAAC régénéré par E12a (au J5, de l'ordre de 557 lignes sur 1 000 pour `catv` et 150 chacune pour `catu` et `place`, à cause des variables emboîtées) ; son importance dépend alors de valeurs arbitraires ; l'étude n'est pas concernée, la liste blanche de E12a retirant ces doublons.
+  - Fichiers : `R/mod_data.R`, `R/mod_preprocess.R`, `R/mod_model.R`, `R/fct_importance.R`, `tests/testthat/test-contract.R`, `tests/testthat/test-data.R`, `tests/testthat/test-preprocess.R`, `tests/testthat/test-importance.R`.
   - Vérification :
-    - `testServer` : la recette renvoyée par l'onglet 2 sans aucune action contient l'imputation médiane et mode ; les valeurs des options repliées restent transmises au serveur ;
+    - `testServer` : la recette renvoyée par l'onglet 2 sans aucune action contient l'imputation médiane et mode ; avec « Aucune » choisie explicitement, elle n'impute rien ;
     - test : sur l'exemple de E11c (g emboîtée dans f), la variable permutée est signalée, et aucune ne l'est sur un modèle sans variable emboîtée ;
     - `test-robustness.R` passe toujours ;
-    - navigateur : sur BAAC, entraînement réussi en ne touchant que la cible, la modalité positive, le retrait de `grav`, l'identifiant et le découpage ; sections repliées à l'ouverture et dépliables ; `students.csv` chargé sans ouvrir les options avancées.
+    - navigateur : sur BAAC, entraînement réussi en ne touchant que la cible, la modalité positive, le retrait de `grav`, l'identifiant et le découpage ; sections repliées à l'ouverture et dépliables, curseurs correctement affichés après dépliage ; une option repliée changée sans ouvrir la section (par script) est bien reçue par le serveur ; `students.csv` chargé sans ouvrir les options avancées.
   - Hors périmètre : refonte visuelle ou thème, nouvelles fonctionnalités.
 
 - [ ] **E13. Onglet Étude de cas**
-  - Dépend de : E8, E9, E12b, E12c (les réglages à rejouer suivent l'interface finale).
+  - Dépend de : E8, E9, E12b, E12c (les réglages à rejouer suivent l'interface finale ; si le signalement facultatif de E12c est coupé, E13 commence dès que le reste de E12c est fusionné).
   - Objectif : l'étude de cas, au plan de l'annexe F.
   - Contenu :
     - démarche justifiée : unité usager, période 2019-2024, échantillonnage par accident, découpage temporel, liste blanche des variables, seuil choisi sur 2023, ce que montre l'ablation ;
@@ -511,7 +511,7 @@ Couvre : les critères d'acceptation (annexe E) et la saisie de l'URL (A.5).
 
 À couper dans cet ordre :
 
-1. Les bonus B1 et B2 : ils ne sont pas commencés.
+1. Les bonus B1 et B2 : ils ne sont pas commencés. Puis le signalement des variables permutées non estimables de E12c.
 2. `rpart` : on garde la logistique et la forêt, qui suffisent au cadrage.
 3. Le mode de découpage « par variable » dans l'app : on garde le stratifié et le groupé, exigés par le cadrage.
 4. La grille de réglages des modèles finaux (E12a) : on garde les réglages par défaut de `ranger` et `rpart`, et l'étude le signale.
