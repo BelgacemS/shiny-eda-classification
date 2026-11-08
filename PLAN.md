@@ -479,6 +479,7 @@ Couvre : l'étude de cas (A.4).
 - [ ] **E14. Relecture croisée et redéploiement complet**
   - Dépend de : E13.
   - Vérification : chaque chiffre de la liste de E13 retrouvé dans l'app déployée ou dans la sortie de `03_final_models.R` ; l'URL publique fonctionne de bout en bout.
+  - À faire s'il reste du temps avant le gel (décidé après E11c) : dans le panneau d'importance de la logistique, signaler une variable quand une part importante de ses lignes permutées est non estimable (sur BAAC, 557 lignes sur 1 000 pour `catv`, 150 pour `catu` et `place`, à cause des variables emboîtées) : son importance dépend alors de valeurs arbitraires. L'étude n'est pas concernée, la liste blanche de E12a retirant ces doublons ; vérifier aussi si Bank Marketing (recette E16) a des variables emboîtées.
 
 - [ ] **Bonus, s'il reste du temps et si les critères de l'annexe E sont remplis sur l'app déployée** (entre E14 et le gel, retirés s'ils sont inachevés au gel)
   - B1 XGBoost : `R/fct_model_xgb.R`, `tests/testthat/test-model-xgb.R`, plus son enregistrement dans l'interface commune de `fct_models.R` ; s'appuyer sur la documentation de la version de `xgboost` installée par `renv` (l'interface R a changé récemment).
