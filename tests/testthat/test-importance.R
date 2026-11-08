@@ -276,8 +276,7 @@ review_settings <- function(...) {
                     list(...))
 }
 
-# Kills M04 (same permutation for every variable) and M05 (same permutation
-# for every repetition).
+# Each variable and each repetition draws its own permutation.
 test_that("each variable and each repetition gets its own permutation", {
   d <- review_data()
   model <- fit_model("glm", d$x, d$y)
@@ -300,7 +299,7 @@ test_that("each variable and each repetition gets its own permutation", {
   expect_equal(imp$sd[imp$variable == "x1"], abs(x1[1] - x1[2]) / 2)
 })
 
-# Kills M03 (permutation of the recipe's output columns).
+# The original variables are permuted, not the columns made by the recipe.
 test_that("importances permute the original variables even when the recipe creates columns", {
   ds <- review_frame()
   rec <- default_recipe()
@@ -314,7 +313,7 @@ test_that("importances permute the original variables even when the recipe creat
   }
 })
 
-# Kills M10 (s_j on the resampled training set).
+# s_j comes from the training set after the recipe, before resampling.
 test_that("s_j is computed on the training set after the recipe, not on the resampled one", {
   ds <- review_frame()
   out <- train_pipeline(ds, default_recipe(), review_settings(models = "glm", balance = "under"))
@@ -322,7 +321,7 @@ test_that("s_j is computed on the training set after the recipe, not on the resa
   expect_equal(li$sd[li$term == "x"], sd_1n(out$results$glm$recipe$train$x))
 })
 
-# Kills M15 (kept_rows ignored in the unweighted refit).
+# The unweighted refit keeps the target aligned with the rows kept by the recipe.
 test_that("the unweighted refit uses the target aligned with the rows kept by the recipe", {
   ds <- review_frame()
   rec <- default_recipe()
@@ -337,7 +336,7 @@ test_that("the unweighted refit uses the target aligned with the rows kept by th
   expect_equal(li$odds_ratio[li$term == "x"], exp(stats::coef(refit$fit)[["x"]]))
 })
 
-# Kills M20 (weights not passed to ranger).
+# Every model receives the class weights.
 test_that("every model is trained with the class weights", {
   ds <- review_frame()
   plain <- train_pipeline(ds, default_recipe(), review_settings())
@@ -348,7 +347,7 @@ test_that("every model is trained with the class weights", {
   }
 })
 
-# Kills M32 (seed read from the current input) and M34 (weighted share not shown).
+# Importances use the seed of the training, and the weighted share is shown.
 test_that("importances use the training seed, and the weighted share is shown", {
   ds <- review_frame()
   shiny::testServer(mod_model_server,
