@@ -8,28 +8,44 @@ NA_CODE_CHOICES <- c("NA", "N/A", ".", "?", "-1", "0")
 TYPE_CHOICES <- c("Quantitative (quanti)" = "quanti", "Qualitative (quali)" = "quali",
                   "Identifiant (id)" = "id", "Ignorée (ignore)" = "ignore")
 
+# Rarely changed options, in an HTML <details> element closed at start: the
+# main path stays visible. The inputs inside are bound and sent to the server
+# even while the section is closed. Shared by the tabs 1 and 4. Bootstrap 3
+# displays summary as a block, which hides its triangle: list-item restores it.
+advanced_options <- function(..., label = "Options avancées") {
+  tags$details(
+    class = "advanced-options", style = "margin-bottom: 15px;",
+    tags$summary(label, style = paste("display: list-item; cursor: pointer; font-weight: bold;",
+                                      "margin-bottom: 10px;")),
+    ...
+  )
+}
+
 mod_data_ui <- function(id) {
   ns <- NS(id)
   sidebarLayout(
     sidebarPanel(
       fileInput(ns("file"), "Fichier CSV ou TSV",
                 accept = c(".csv", ".tsv", ".txt", "text/csv", "text/tab-separated-values")),
-      selectInput(ns("sep"), "Séparateur", SEP_CHOICES),
-      checkboxInput(ns("header"), "Première ligne : noms des colonnes", TRUE),
-      selectInput(ns("encoding"), "Encodage",
-                  c("UTF-8" = "UTF-8", "Windows-1252 (Latin-1)" = "CP1252")),
-      radioButtons(ns("dec"), "Marque décimale", c("Point" = ".", "Virgule" = ","),
-                   inline = TRUE),
-      selectizeInput(ns("na_codes"), "Codes de valeur manquante", NA_CODE_CHOICES,
-                     selected = "NA", multiple = TRUE, options = list(create = TRUE)),
-      checkboxInput(ns("na_empty"), "Cellule vide : valeur manquante", TRUE),
-      selectizeInput(ns("na_cols"), "Colonnes concernées par les codes (vide : toutes)",
-                     choices = NULL, multiple = TRUE),
-      helpText("Un code est comparé au texte exact de la cellule. « NA » et la cellule",
-               "vide valent pour toutes les colonnes ; les autres codes, pour les",
-               "colonnes choisies. Appliqué partout, « 0 » ou « -1 » efface aussi les",
-               "vraies valeurs. Ces options ne portent que sur les fichiers, et chaque",
-               "changement relit le fichier en gardant les types modifiés à la main."),
+      advanced_options(
+        helpText("Les valeurs par défaut conviennent à un CSV ordinaire."),
+        selectInput(ns("sep"), "Séparateur", SEP_CHOICES),
+        checkboxInput(ns("header"), "Première ligne : noms des colonnes", TRUE),
+        selectInput(ns("encoding"), "Encodage",
+                    c("UTF-8" = "UTF-8", "Windows-1252 (Latin-1)" = "CP1252")),
+        radioButtons(ns("dec"), "Marque décimale", c("Point" = ".", "Virgule" = ","),
+                     inline = TRUE),
+        selectizeInput(ns("na_codes"), "Codes de valeur manquante", NA_CODE_CHOICES,
+                       selected = "NA", multiple = TRUE, options = list(create = TRUE)),
+        checkboxInput(ns("na_empty"), "Cellule vide : valeur manquante", TRUE),
+        selectizeInput(ns("na_cols"), "Colonnes concernées par les codes (vide : toutes)",
+                       choices = NULL, multiple = TRUE),
+        helpText("Un code est comparé au texte exact de la cellule. « NA » et la cellule",
+                 "vide valent pour toutes les colonnes ; les autres codes, pour les",
+                 "colonnes choisies. Appliqué partout, « 0 » ou « -1 » efface aussi les",
+                 "vraies valeurs. Ces options ne portent que sur les fichiers, et chaque",
+                 "changement relit le fichier en gardant les types modifiés à la main.")
+      ),
       hr(),
       uiOutput(ns("baac_ui"))
     ),
