@@ -94,6 +94,28 @@ test_that("recipe() reflects the settings", {
   })
 })
 
+test_that("the recipe imputes by median and mode until another choice is made", {
+  ds <- toy_raw()
+  shiny::testServer(mod_preprocess_server, args = list(dataset = shiny::reactive(ds)), {
+    expect_equal(session$returned$recipe()$impute, list(quanti = "median", quali = "mode"))
+    session$setInputs(impute_quanti = "none", impute_quali = "none")
+    expect_equal(session$returned$recipe()$impute, list(quanti = "none", quali = "none"))
+  })
+  # The contract function itself keeps no imputation.
+  expect_equal(default_recipe()$impute, list(quanti = "none", quali = "none"))
+})
+
+test_that("the imputation inputs start on the value used while they are empty", {
+  html <- htmltools::renderTags(mod_preprocess_ui("p"))$html
+  selected <- function(id) {
+    select <- regmatches(html, regexpr(sprintf('(?s)<select id="p-%s".*?</select>', id), html,
+                                       perl = TRUE))
+    sub('(?s).*<option value="([^"]+)" selected>.*', "\\1", select, perl = TRUE)
+  }
+  expect_equal(selected("impute_quanti"), DEFAULT_IMPUTE$quanti)
+  expect_equal(selected("impute_quali"), DEFAULT_IMPUTE$quali)
+})
+
 test_that("the preview fits the recipe on the whole clean dataset", {
   ds <- toy_raw()
   shiny::testServer(mod_preprocess_server, args = list(dataset = shiny::reactive(ds)), {
