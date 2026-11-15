@@ -36,9 +36,51 @@ labelled_vars <- c("lum", "agg", "int", "atm", "col", "catr", "circ", "vosp", "p
                    "place", "catu", "grav", "sexe", "trajet", "locp", "actp", "etatp",
                    "secu1", "secu2", "secu3")
 
+# Safety equipment. secu1 to secu3 are three boxes listing up to three items
+# used, in no order (coding guide), so the box an item is in means nothing, and
+# "0" (no equipment) only means something in secu1: in secu2 and secu3 it marks
+# an empty box, as "-1" does. The boxes are replaced by one oui/non indicator
+# per item, plus secu_indetermine for the users whose equipment is unknown
+# (secu1 "8" or missing, no item listed elsewhere): their six indicators are
+# "non" and the unknown state is carried by secu_indetermine alone. Indicators
+# with an "Indéterminé" level on the same rows would give six identical dummy
+# columns, hence five aliased logistic coefficients; an NA would be imputed
+# with the mode, mixing the unknown with the absence of equipment.
+secu_items <- list(secu_ceinture = "1", secu_casque = "2", secu_enfant = "3", secu_gilet = "4",
+                   secu_airbag = c("5", "7"), secu_gants = c("6", "7"))
+
+# Takes the trimmed codes of the three boxes; returns the seven factors.
+secu_indicators <- function(secu1, secu2, secu3) {
+  boxes <- list(secu1, secu2, secu3)
+  listed <- function(codes) Reduce(`|`, lapply(boxes, function(b) b %in% codes))
+  yes_no <- function(x) factor(ifelse(x, "oui", "non"), levels = c("non", "oui"))
+  out <- lapply(secu_items, function(codes) yes_no(listed(codes)))
+  no_item <- secu1 %in% c("0", "9")  # "Aucun équipement" or "Autre"
+  out$secu_indetermine <- yes_no(!listed(as.character(1:7)) & !no_item)
+  as.data.table(out)
+}
+
+# Users built by hand: belt in box 2, gloves + airbag, no equipment, not
+# determinable, three empty boxes, not determinable with a helmet in box 2.
+local({
+  s <- secu_indicators(secu1 = c("9", "7", "0", "8", "-1", "8"),
+                       secu2 = c("1", "0", "0", "-1", "", "2"),
+                       secu3 = c("-1", "-1", "0", "-1", "-1", "0"))
+  oui <- function(v) which(s[[v]] == "oui")
+  stopifnot(
+    identical(names(s), c(names(secu_items), "secu_indetermine")),
+    !anyNA(s),
+    identical(oui("secu_ceinture"), 1L), identical(oui("secu_casque"), 6L),
+    identical(oui("secu_airbag"), 2L), identical(oui("secu_gants"), 2L),
+    identical(oui("secu_enfant"), integer(0)), identical(oui("secu_gilet"), integer(0)),
+    identical(oui("secu_indetermine"), c(4L, 5L))
+  )
+})
+
 output_cols <- c(
   "Num_Acc", "id_vehicule", "id_usager", "an", "grave", "grav",
-  "catu", "place", "sexe", "age", "trajet", "secu1", "secu2", "secu3", "locp", "actp", "etatp",
+  "catu", "place", "sexe", "age", "trajet", names(secu_items), "secu_indetermine",
+  "locp", "actp", "etatp",
   "catv", "catv_groupe", "senc", "motor", "manv", "obs", "obsm", "choc", "occutc",
   "mois", "jour_semaine", "tranche_horaire", "lum", "agg", "int", "atm", "col", "dep",
   "catr", "circ", "nbv", "vosp", "prof", "plan", "lartpc", "larrout", "surf", "infra", "situ", "vma",
@@ -131,6 +173,9 @@ prepare_year <- function(year) {
     if (!is.null(u)) u[, `:=`(year = year, variable = v)]
     u
   }))
+
+  # On the codes, before labelling; codes absent from the guide count as missing.
+  dt[, (c(names(secu_items), "secu_indetermine")) := secu_indicators(secu1, secu2, secu3)]
 
   dt[, grave := factor(ifelse(grav %in% c("2", "3"), "oui", "non"), levels = c("non", "oui"))]
   dt[, catv_groupe := factor(unname(catv_groups[catv]), levels = catv_group_levels)]
