@@ -8,8 +8,8 @@
 #
 # Split by year: training 2019-2022, validation 2023, test 2024. Settings,
 # rebalancing and threshold are chosen on 2023 by select_models(), which only
-# receives the training and validation sets. The 2024 labels are never read
-# here; a check permutes them and expects the same choices.
+# receives the training and validation sets. No 2024 row is read here; a check
+# permutes the 2024 labels and expects the same choices.
 
 library(data.table)
 for (f in c("fct_stats_base.R", "fct_recipe.R", "fct_split.R", "fct_balance.R",
@@ -34,9 +34,9 @@ review_auc <- 0.8  # univariate AUC above which a variable is reviewed before be
 # Recipe of the final models, the defaults of the app (PLAN.md, E12c): NA
 # imputed by the training median (quanti) or mode (quali), the frequent NA of
 # trajet and circ being already a level (model_vars.R); levels under 0.5 % of
-# the non-missing training values go to
-# "Autre", on the variables with more than two levels (grouping a binary
-# variable would only rename its rare level). No scaling or dummy coding:
+# the non-missing training values go to "Autre", on the variables with more
+# than two levels (grouping a binary variable would only rename its rare
+# level). No scaling or dummy coding:
 # glm, ranger and rpart take the factors as they are.
 rare_threshold <- 0.005
 final_recipe <- function(x) {
@@ -82,18 +82,32 @@ var_types_of <- function(x) {
 
 # --- Data ----------------------------------------------------------------------
 
-# Training, validation and test parts by year: list(x, y) each, x the
-# whitelisted predictors, y the 0/1 target. The training set is a sample of
-# whole accidents, `fraction` of its rows.
+# Training and validation parts by year: list(x, y, rows) each, x the
+# whitelisted predictors, y the 0/1 target, rows the rows of full. The
+# training set is a sample of whole accidents, `fraction` of its rows. The
+# test part (2024) is built in E12b only.
 year_parts <- function(full, fraction, seed) {
   part <- function(rows) {
-    list(x = as.data.frame(full[rows, ..model_whitelist]), y = as.integer(full$grave[rows] == "oui"))
+    list(x = as.data.frame(full[rows, ..model_whitelist]), y = as.integer(full$grave[rows] == "oui"),
+         rows = rows)
   }
   train_rows <- which(full$an %in% train_years)
   keep <- sample_rows(length(train_rows), round(fraction * length(train_rows)),
                       groups = full$Num_Acc[train_rows], seed = seed)
-  list(train = part(train_rows[keep]), valid = part(which(full$an == valid_year)),
-       test = part(which(full$an == test_year)))
+  list(train = part(train_rows[keep]), valid = part(which(full$an == valid_year)))
+}
+
+# Checks the parts against the years, without the code of year_parts():
+# training rows from the training years only, made of whole accidents, the
+# validation set being exactly the validation year.
+check_parts <- function(full, parts) {
+  tr <- parts$train$rows
+  stopifnot(
+    all(full$an[tr] %in% train_years),
+    setequal(tr, which(full$an %in% train_years & full$Num_Acc %in% full$Num_Acc[tr])),
+    setequal(parts$valid$rows, which(full$an == valid_year))
+  )
+  invisible(TRUE)
 }
 
 # Share (%) of each level by year, NA as a level; a numeric column only gets
@@ -167,6 +181,30 @@ select_models <- function(train, valid, vars, grid, seed, threads) {
        costs = rbindlist(costs))
 }
 
+# Recomputes the choices of select_models() from its grid and models, without
+# its code: recipe equal to a fit on the training set alone, settings and
+# rebalancing of maximal AUC (first on a tie), AUC and threshold of maximal F1
+# recomputed on the validation set.
+check_selection <- function(sel, train, valid, vars) {
+  x_train <- train$x[vars]
+  refit <- fit_recipe(final_recipe(x_train), x_train, var_types_of(x_train))
+  stopifnot(identical(refit$params, sel$recipe$params))
+  x_valid <- apply_recipe(refit, valid$x[vars])
+  for (type in names(sel$chosen)) {
+    ch <- sel$chosen[[type]]
+    grid <- sel$grid[model == type]
+    first_best <- grid[which.max(auc)]
+    prob <- predict_proba(sel$models[[type]], x_valid)
+    stopifnot(
+      ch$auc == max(grid$auc), ch$balance == first_best$balance,
+      setting_label(ch$setting) == first_best$setting,
+      roc_curve(valid$y, prob)$auc == ch$auc,
+      ch$threshold == best_f1_threshold(valid$y, prob)
+    )
+  }
+  invisible(TRUE)
+}
+
 chosen_table <- function(sel) {
   rbindlist(lapply(names(sel$chosen), function(type) {
     ch <- sel$chosen[[type]]
@@ -208,13 +246,16 @@ show(level_shares(full[an <= valid_year], c("vosp", "catr")))
 
 check_model_vars(model_vars_main)
 check_model_vars(model_vars_ablation)
-cat("\nWhitelist checked: no identifier, year or target, no catv next to catv_groupe.\n")
+check_columns_classified(names(full))
+cat("\nWhitelist checked: every column whitelisted, excluded or forbidden once; no identifier,",
+    "year or target, no catv next to catv_groupe.\n")
 
 # --- Leak control on 2023 --------------------------------------------------------
 
 # On the whole 2019-2022 training set and the original variables: univariate
 # AUC (learned on training, measured on 2023) and NA share by class on 2023.
 parts_all <- year_parts(full, 1, seed)
+check_parts(full, parts_all)
 t0 <- elapsed()
 leak <- as.data.table(univariate_auc_details(parts_all$train$x, parts_all$train$y,
                                              parts_all$valid$x, parts_all$valid$y))
@@ -227,7 +268,8 @@ cat(sprintf("\n## Leak control on %d: univariate AUC and NA share by class (%%),
             valid_year, elapsed() - t0))
 show(leak[order(-auc), .(variable, auc = round(auc, 4), lower = round(lower, 4), n_pos, n_neg,
                          na_grave_pct, na_other_pct, review)])
-stopifnot(!any(leak$auc > review_auc, na.rm = TRUE))
+stopifnot(setequal(leak$variable, model_whitelist), !anyNA(leak$auc),
+          !any(leak$auc > review_auc))
 rm(parts_all)
 invisible(gc(full = TRUE))
 
@@ -236,8 +278,10 @@ invisible(gc(full = TRUE))
 # The selection with the 2024 labels permuted gives the same grid and choices.
 blind_run <- function(data) {
   p <- year_parts(data, blind_fraction, seed)
+  check_parts(data, p)
   lapply(list(main = model_vars_main, ablation = model_vars_ablation), function(vars) {
     s <- select_models(p$train, p$valid, vars, blind_grid, seed, threads)
+    check_selection(s, p$train, p$valid, vars)
     list(grid = s$grid, chosen = s$chosen, costs = s$costs)
   })
 }
@@ -263,10 +307,11 @@ invisible(gc(full = TRUE))
 invisible(gc(reset = TRUE, full = TRUE))
 t0 <- elapsed()
 parts <- year_parts(full, train_fraction, seed)
-cat(sprintf("\n## Parts: training %d users (%g %% of the %d-%d accidents), validation %d, test %d\n\n",
+check_parts(full, parts)
+cat(sprintf("\n## Parts: training %d users (%g %% of the %d-%d accidents), validation %d (%d not read)\n\n",
             length(parts$train$y), 100 * train_fraction, min(train_years), max(train_years),
-            length(parts$valid$y), length(parts$test$y)))
-cat(sprintf("Share of grave: training %.2f %%, validation %.2f %% (test labels not read)\n",
+            length(parts$valid$y), test_year))
+cat(sprintf("Share of grave: training %.2f %%, validation %.2f %%\n",
             100 * mean(parts$train$y), 100 * mean(parts$valid$y)))
 naive <- naive_metrics(parts$valid$y)
 cat(sprintf("Naive references on %d: constant score AUC %.2f; all positive: precision %.4f, recall %.0f, F1 %.4f\n",
@@ -278,6 +323,7 @@ for (spec in c("main", "ablation")) {
   vars <- if (spec == "main") model_vars_main else model_vars_ablation
   check_model_vars(vars)
   sel <- select_models(parts$train, parts$valid, vars, settings_grid, seed, threads)
+  check_selection(sel, parts$train, parts$valid, vars)
   label <- sprintf("%s specification (%d variables)", spec, length(vars))
   cat(sprintf("\n## AUC on %d of each setting, %s\n\n", valid_year, label))
   show(merge(sel$grid, sel$costs, by = c("model", "balance", "setting"), sort = FALSE)[

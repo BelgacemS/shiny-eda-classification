@@ -76,7 +76,7 @@ Missing values [Missing value codes], [Whitespace around values]:
 - `-1` is written `" -1"`, with a leading space inside the quotes, in most coded columns (`atm`, `col`, `circ`, `vma`, `senc`, `catv`, `obs`, `grav`, `sexe`, `secu1`...). `fread` keeps spaces inside quotes, so values must be trimmed before any comparison;
 - empty cells: `adr` (2022 on), `voie`, `v1`, `v2`, `lartpc`, `larrout`, `occutc`, and `an_nais` from 2021;
 - `"."` and `"N/A"` only in the free text columns `adr`, `voie` and `v2`;
-- `0` means "not filled in" for some variables only: "non renseigné" for `trajet`, "non renseigné ou sans objet" for `actp`, "sans objet" for `vosp`, `obs` and `locp`, "aucun" for `infra`, `situ`, `obsm` and `choc`, "inconnu(e)" for `senc`, `manv` and `motor`, and "aucun équipement" for `secu1` to `secu3`. Recoding has to follow the guide variable by variable.
+- `0` means "not filled in" for some variables only: "non renseigné" for `trajet`, "non renseigné ou sans objet" for `actp`, "sans objet" for `vosp`, `obs` and `locp`, "aucun" for `infra`, `situ`, `obsm` and `choc`, "inconnu(e)" for `senc`, `manv` and `motor`, and "aucun équipement" for `secu1` to `secu3` (in `secu2` and `secu3` a 0 also marks an empty box: see `secu_indicators()` in `02_prepare_baac.R`). Recoding has to follow the guide variable by variable.
 
 ## Fugitive users
 
