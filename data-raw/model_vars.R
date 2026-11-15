@@ -40,7 +40,7 @@ model_forbidden <- c("grave", "grav", "Num_Acc", "id_vehicule", "id_usager", "an
 #   exactly the pedestrians, hence a collinearity with catu and the intercept
 #   whatever the reference level;
 # - occutc: number of occupants of a bus or coach, NA for every other vehicle
-#   (98.6 % of the users);
+#   (98.7 % of the users);
 # - lartpc: width of the central reservation, NA for 99.8 % of the users;
 # - larrout: road width, NA for 93 to 99 % of the users from 2019 to 2022 and
 #   69 % in 2023, a change of coding;
@@ -80,9 +80,9 @@ model_forbidden <- c("grave", "grav", "Num_Acc", "id_vehicule", "id_usager", "an
 # - trajet and circ: NA becomes the level "Non renseigné" (the meaning of -1,
 #   and of 0 for trajet, in the guide). They are the two whitelisted factors
 #   with a frequent NA (26 % and 6 %); the recipe imputes the rare NA of the
-#   others with the training mode. A "Manquant" level for every factor would
-#   be the same few rows in prof, plan and lum (an accident whose place is not
-#   filled in), hence identical dummy columns and an aliased coefficient.
+#   others with the training mode. A "Manquant" level for every factor,
+#   grouped with the rare levels, aliased a coefficient on 10 % of the
+#   training set: the few NA of prof and plan fall on the same rows there.
 na_level <- "Non renseigné"
 na_level_vars <- c("trajet", "circ")
 
@@ -128,14 +128,29 @@ local({
   )
 })
 
-# Stops unless vars is a subset of the whitelist without a forbidden column,
-# and never has catv next to catv_groupe.
+# Columns left out above, listed so that every column of accidents_full.rds is
+# classified once: whitelisted, excluded or forbidden.
+model_excluded <- c("catv", "place", "locp", "actp", "etatp", "occutc", "lartpc", "larrout",
+                    "nbv", "motor", "senc", "dep")
+
+# Stops unless vars is a subset of the whitelist without an excluded or
+# forbidden column, and never has catv next to catv_groupe.
 check_model_vars <- function(vars) {
   stopifnot(
     length(vars) > 0, !anyDuplicated(vars),
     all(vars %in% model_whitelist),
-    !any(vars %in% model_forbidden),
+    !any(vars %in% c(model_forbidden, model_excluded)),
     !("catv" %in% vars && "catv_groupe" %in% vars)
+  )
+  invisible(TRUE)
+}
+
+# Stops unless the three lists split the columns of the table exactly.
+check_columns_classified <- function(columns) {
+  lists <- list(model_whitelist, model_excluded, model_forbidden)
+  stopifnot(
+    !anyDuplicated(unlist(lists)),
+    setequal(unlist(lists), columns)
   )
   invisible(TRUE)
 }

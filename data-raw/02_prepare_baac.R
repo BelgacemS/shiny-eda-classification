@@ -75,6 +75,9 @@ local({
     identical(oui("secu_enfant"), integer(0)), identical(oui("secu_gilet"), integer(0)),
     identical(oui("secu_indetermine"), c(4L, 5L))
   )
+  # "0" in box 2 is an empty box, "9" alone means no equipment, box 3 counts.
+  s <- secu_indicators(secu1 = c("8", "9", "-1"), secu2 = c("0", "-1", "-1"), secu3 = c("-1", "-1", "4"))
+  stopifnot(identical(oui("secu_indetermine"), 1L), identical(oui("secu_gilet"), 3L))
 })
 
 output_cols <- c(
