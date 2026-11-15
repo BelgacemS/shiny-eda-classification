@@ -16,7 +16,7 @@ advanced_options <- function(..., label = "Options avancées") {
   tags$details(
     class = "advanced-options", style = "margin-bottom: 15px;",
     tags$summary(label, style = paste("display: list-item; cursor: pointer; font-weight: bold;",
-                                      "margin-bottom: 10px;")),
+                                      "padding: 4px 0; margin-bottom: 6px;")),
     ...
   )
 }
@@ -28,6 +28,7 @@ mod_data_ui <- function(id) {
       fileInput(ns("file"), "Fichier CSV ou TSV",
                 accept = c(".csv", ".tsv", ".txt", "text/csv", "text/tab-separated-values")),
       advanced_options(
+        label = "Options avancées : séparateur, encodage, valeurs manquantes",
         helpText("Les valeurs par défaut conviennent à un CSV ordinaire."),
         selectInput(ns("sep"), "Séparateur", SEP_CHOICES),
         checkboxInput(ns("header"), "Première ligne : noms des colonnes", TRUE),

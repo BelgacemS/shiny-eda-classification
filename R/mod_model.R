@@ -39,12 +39,13 @@ mod_model_ui <- function(id) {
                "la vraie répartition. Ces corrections déplacent surtout les probabilités et donc le seuil,",
                "souvent sans gain d'AUC (van den Goorbergh et al., 2022)."),
       advanced_options(
+        label = "Options avancées : parts du test et de la validation, ratio, graine",
         sliderInput(ns("test_prop"), "Part du test", min = 0.1, max = 0.5, value = 0.2, step = 0.05),
         sliderInput(ns("valid_prop"), "Part de la validation (dans l'entraînement)",
                     min = 0.1, max = 0.5, value = 0.25, step = 0.05),
         conditionalPanel(
           sprintf("input['%s'] == 'under' || input['%s'] == 'over'", ns("balance"), ns("balance")),
-          sliderInput(ns("balance_ratio"), "Ratio visé du rééchantillonnage (minorité / majorité)",
+          sliderInput(ns("balance_ratio"), "Ratio visé après rééquilibrage (minorité / majorité)",
                       min = 0.2, max = 1, value = 1, step = 0.1)
         ),
         numericInput(ns("seed"), "Graine", value = 1, min = 1, step = 1)
@@ -77,7 +78,7 @@ mod_model_ui <- function(id) {
           column(4, numericInput(ns("importance_reps"), "Permutations par variable",
                                  value = 1, min = 1, max = 5, step = 1))
         ),
-        label = "Options avancées des importances"
+        label = "Options avancées : lignes et permutations des importances"
       ),
       actionButton(ns("evaluate"), "Évaluer sur le test"),
       textOutput(ns("test_info")),
