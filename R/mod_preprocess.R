@@ -41,8 +41,8 @@ clean_dataset <- function(dataset, drop_cols = character(0), drop_incomplete = F
 }
 
 # Recipe settings from the inputs of the tab. A NULL or empty input keeps the
-# default (DEFAULT_IMPUTE for the imputation); so does a number outside its range (the min and max of numericInput
-# are not enforced on what the user types).
+# default (DEFAULT_IMPUTE for the imputation); so does a number outside its
+# range (the min and max of numericInput are not enforced on what the user types).
 build_recipe <- function(input) {
   recipe <- default_recipe()
   set <- function(value, current, valid = function(v) TRUE) {

@@ -463,7 +463,7 @@ Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
 
 Couvre : l'étude de cas (A.4).
 
-- [ ] **E12c. Interface allégée**
+- [x] **E12c. Interface allégée**
   - Dépend de : E11d (mêmes fichiers de l'onglet 4) ; indépendante de E12a et E12b, qui ne touchent que `data-raw/`.
   - Objectif : que le chemin principal (charger, choisir la cible, entraîner, évaluer) se voie d'emblée, avant que l'onglet 5 donne les réglages à rejouer (décidé le 8 novembre, après une première visite de l'app déployée).
   - Contenu :
@@ -477,6 +477,7 @@ Couvre : l'étude de cas (A.4).
     - `test-robustness.R` passe toujours ;
     - navigateur : sur BAAC, entraînement réussi en ne touchant que la cible, la modalité positive, le retrait de `grav`, l'identifiant et le découpage ; sections repliées à l'ouverture et dépliables, curseurs correctement affichés après dépliage ; une option repliée changée sans ouvrir la section (par script) est bien reçue par le serveur ; `students.csv` chargé sans ouvrir les options avancées.
   - Hors périmètre : refonte visuelle ou thème, nouvelles fonctionnalités.
+  - Fait (15 novembre) : sections repliées et imputation par défaut ; le signalement facultatif des variables permutées non estimables n'est pas fait (son seuil se fixe sur l'échantillon BAAC régénéré par E12a, absent du poste qui a fait l'étape), et la vérification navigateur sur BAAC reste à faire sur un poste qui a l'échantillon ; celle sur `students.csv` est faite.
 
 - [ ] **E13. Onglet Étude de cas**
   - Dépend de : E8, E9, E12b, E12c (les réglages à rejouer suivent l'interface finale ; si le signalement facultatif de E12c est coupé, E13 commence dès que le reste de E12c est fusionné).

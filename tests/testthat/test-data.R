@@ -294,7 +294,9 @@ test_that("the import options of tab 1 are collapsed, the file input is not", {
   expect_true(all(c("d-file", "d-baac_ui", "d-type_vars", "d-type_apply") %in% ui$outside))
 })
 
-test_that("an import option changed while its section is closed re-reads the file", {
+# testServer has no DOM: this checks that a change of header re-reads the file;
+# the same change made while the section is closed is checked in a browser.
+test_that("a change of an import option re-reads the file", {
   path <- tempfile(fileext = ".csv")
   writeLines(c("x,g", "1,a", "2,b", "3,a"), path)
   upload <- data.frame(name = "toy.csv", size = file.size(path), type = "text/csv",
