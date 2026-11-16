@@ -275,3 +275,36 @@ test_that("the deployed BAAC sample loads through the button", {
     expect_equal(dim(ds$data), dim(sample))
   })
 })
+
+# --- Advanced options (E12c) ------------------------------------------------------
+
+test_that("advanced_options is a details section closed at start", {
+  html <- as.character(advanced_options(shiny::numericInput("n", "N", 1)))
+  expect_match(html, "^<details")
+  expect_false(grepl("<details[^>]* open", html))
+  expect_match(html, "<summary[^>]*>Options avancées</summary>")
+})
+
+test_that("the import options of tab 1 are collapsed, the file input is not", {
+  ui <- advanced_input_ids(mod_data_ui("d"))
+  expect_length(ui$sections, 1)
+  expect_false(grepl("<details[^>]* open", ui$sections))
+  expect_true(all(paste0("d-", c("sep", "header", "encoding", "dec", "na_codes", "na_empty",
+                                 "na_cols")) %in% ui$inside))
+  expect_true(all(c("d-file", "d-baac_ui", "d-type_vars", "d-type_apply") %in% ui$outside))
+})
+
+# testServer has no DOM: this checks that a change of header re-reads the file;
+# the same change made while the section is closed is checked in a browser.
+test_that("a change of an import option re-reads the file", {
+  path <- tempfile(fileext = ".csv")
+  writeLines(c("x,g", "1,a", "2,b", "3,a"), path)
+  upload <- data.frame(name = "toy.csv", size = file.size(path), type = "text/csv",
+                       datapath = path)
+  shiny::testServer(mod_data_server, args = list(baac_sample = NULL), {
+    session$setInputs(file = upload)
+    expect_equal(nrow(session$returned()$data), 3L)
+    session$setInputs(header = FALSE)
+    expect_equal(nrow(session$returned()$data), 4L)
+  })
+})

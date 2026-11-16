@@ -469,3 +469,13 @@ test_that("a non-integer number of permutations is refused", {
     expect_null(importances())
   })
 })
+
+test_that("the rarely changed settings of tab 4 are collapsed, the main path is not", {
+  ui <- advanced_input_ids(mod_model_ui("m"))
+  expect_length(ui$sections, 2)
+  expect_false(any(grepl("<details[^>]* open", ui$sections)))
+  expect_true(all(paste0("m-", c("test_prop", "valid_prop", "balance_ratio", "seed",
+                                 "importance_size", "importance_reps")) %in% ui$inside))
+  expect_true(all(paste0("m-", c("target", "positive", "predictors", "sample_size", "group",
+                                 "mode", "models", "balance", "train", "evaluate")) %in% ui$outside))
+})

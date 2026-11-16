@@ -11,6 +11,10 @@ OUTLIER_ACTIONS <- c("Aucune" = "none", "Signaler" = "flag", "Plafonner aux born
 IMPUTE_QUANTI <- c("Aucune" = "none", "Médiane" = "median", "Moyenne" = "mean")
 IMPUTE_QUALI <- c("Aucune" = "none", "Modalité la plus fréquente" = "mode",
                   "Modalité « Manquant »" = "missing_level")
+# Imputation at start, so that a training works without visiting this tab:
+# initial value of the inputs and fallback of build_recipe() while they are
+# still empty. default_recipe() (contract) keeps no imputation.
+DEFAULT_IMPUTE <- list(quanti = "median", quali = "mode")
 SCALE_METHODS <- c("Aucune" = "none", "Centrage-réduction" = "standard", "Min-max" = "minmax")
 DUMMY_METHODS <- c("Aucune" = "none", "One-hot (k colonnes)" = "one_hot",
                    "k − 1 colonnes (référence : modalité la plus fréquente)" = "k_minus_1")
@@ -37,8 +41,8 @@ clean_dataset <- function(dataset, drop_cols = character(0), drop_incomplete = F
 }
 
 # Recipe settings from the inputs of the tab. A NULL or empty input keeps the
-# default; so does a number outside its range (the min and max of numericInput
-# are not enforced on what the user types).
+# default (DEFAULT_IMPUTE for the imputation); so does a number outside its
+# range (the min and max of numericInput are not enforced on what the user types).
 build_recipe <- function(input) {
   recipe <- default_recipe()
   set <- function(value, current, valid = function(v) TRUE) {
@@ -47,8 +51,8 @@ build_recipe <- function(input) {
   recipe$outliers$method <- set(input$outlier_method, recipe$outliers$method)
   recipe$outliers$z <- set(input$outlier_z, recipe$outliers$z, function(v) v >= 1)
   recipe$outliers$action <- set(input$outlier_action, recipe$outliers$action)
-  recipe$impute$quanti <- set(input$impute_quanti, recipe$impute$quanti)
-  recipe$impute$quali <- set(input$impute_quali, recipe$impute$quali)
+  recipe$impute$quanti <- set(input$impute_quanti, DEFAULT_IMPUTE$quanti)
+  recipe$impute$quali <- set(input$impute_quali, DEFAULT_IMPUTE$quali)
   rare_pct <- set(input$rare_pct, 100 * recipe$rare$threshold, function(v) v >= 0 && v <= 100)
   recipe$rare$threshold <- rare_pct / 100
   recipe$scale$method <- set(input$scale_method, recipe$scale$method)
@@ -124,8 +128,13 @@ mod_preprocess_ui <- function(id) {
       selectInput(ns("outlier_action"), "Outliers : traitement", OUTLIER_ACTIONS),
       helpText("« Signaler » ne modifie pas les données : les outliers se lisent dans le",
                "tableau de l'onglet Valeurs aberrantes."),
-      selectInput(ns("impute_quanti"), "Imputation des variables quanti", IMPUTE_QUANTI),
-      selectInput(ns("impute_quali"), "Imputation des variables quali", IMPUTE_QUALI),
+      selectInput(ns("impute_quanti"), "Imputation des variables quanti", IMPUTE_QUANTI,
+                  selected = DEFAULT_IMPUTE$quanti),
+      selectInput(ns("impute_quali"), "Imputation des variables quali", IMPUTE_QUALI,
+                  selected = DEFAULT_IMPUTE$quali),
+      helpText("Par défaut, médiane et modalité la plus fréquente : un entraînement marche",
+               "sans passer par cet onglet. « Aucune » laisse les valeurs manquantes, que les",
+               "modèles refusent."),
       numericInput(ns("rare_pct"), "Modalités rares : seuil (% des valeurs), 0 pour aucun",
                    value = 0, min = 0, max = 50, step = 0.5),
       selectInput(ns("scale_method"), "Normalisation", SCALE_METHODS),

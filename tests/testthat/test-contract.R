@@ -65,7 +65,10 @@ test_that("mod_preprocess_server passes the dataset through", {
   shiny::testServer(mod_preprocess_server, args = list(dataset = shiny::reactive(ds)), {
     out <- session$returned
     expect_identical(out$dataset_clean(), ds)
-    expect_identical(out$recipe(), default_recipe())
+    # Without any action, the default recipe plus the imputation set at start (E12c).
+    expected <- default_recipe()
+    expected$impute <- DEFAULT_IMPUTE
+    expect_identical(out$recipe(), expected)
   })
 })
 
