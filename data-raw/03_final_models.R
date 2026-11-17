@@ -9,7 +9,7 @@
 #
 # Split by year: training 2019-2022, validation 2023, test 2024. Settings,
 # rebalancing and threshold are chosen on 2023 by select_models(), which only
-# receives the training and validation sets; a check permutes the 2024 labels
+# receives the training and validation sets; a check removes every 2024 row
 # and expects the same choices. 2024 is then used once per specification, to
 # evaluate the variants already chosen: metrics at the 2023 threshold, ROC,
 # logistic coefficients, permutation importance, and AUC intervals by a
@@ -205,8 +205,9 @@ select_models <- function(train, valid, vars, grid, seed, threads) {
 # Recomputes the choices of select_models() from its grid and models, without
 # its code: recipe equal to a fit on the training set alone; for each type and
 # rebalancing, settings of maximal AUC (first on a tie), AUC and threshold of
-# maximal F1 recomputed on the validation set; for each type, the variant of
-# maximal AUC over the whole grid (first on a tie).
+# maximal F1, confusion and metrics at that threshold recomputed on the
+# validation set; for each type, the variant of maximal AUC over the whole
+# grid (first on a tie).
 check_selection <- function(sel, train, valid, vars) {
   x_train <- train$x[vars]
   refit <- fit_recipe(final_recipe(x_train), x_train, var_types_of(x_train))
@@ -222,7 +223,9 @@ check_selection <- function(sel, train, valid, vars) {
         v$balance == b, v$auc == max(grid$auc),
         setting_label(v$setting) == grid[which.max(auc)]$setting,
         roc_curve(valid$y, prob)$auc == v$auc,
-        v$threshold == best_f1_threshold(valid$y, prob)
+        v$threshold == best_f1_threshold(valid$y, prob),
+        identical(v$confusion, unclass(confusion(valid$y, prob, v$threshold))),
+        identical(v$metrics, threshold_metrics(valid$y, prob, v$threshold)$metrics)
       )
     }
     grid <- sel$grid[model == type]
@@ -247,7 +250,7 @@ variants_table <- function(sel) {
 
 # The test year: x the whitelisted predictors, y the 0/1 target, rows the rows
 # of full, accident the accident of each row (the unit of the bootstrap and of
-# the importance sample). Built after the selection, which never receives it.
+# the importance sample). select_models() never receives it.
 test_part <- function(full) {
   rows <- which(full$an == test_year)
   stopifnot(length(rows) > 0, all(full$an[rows] == test_year))
@@ -255,8 +258,9 @@ test_part <- function(full) {
        rows = rows, accident = full$Num_Acc[rows])
 }
 
-# At most n_points points of a ROC curve, taken evenly along the curve; the
-# first (0, 0) and the last (1, 1) are kept. The AUC is computed on the full curve.
+# At most n_points points of a ROC curve, taken at regular steps of the
+# threshold index (not of the curve length); the first (0, 0) and the last
+# (1, 1) are kept. The AUC is computed on the full curve.
 thin_roc <- function(roc, n_points = 1000) {
   keep <- unique(round(seq(1, length(roc$fpr), length.out = min(n_points, length(roc$fpr)))))
   data.frame(fpr = roc$fpr[keep], tpr = roc$tpr[keep])
@@ -325,6 +329,57 @@ test_importances <- function(sel, test, vars, rows, n_rep, seed) {
   })
 }
 
+# Recomputes the evaluation on the test year without the code above: recipe
+# refitted on the training set alone, probabilities of the model of each
+# variant, AUC, confusion at the 2023 threshold (whose cells add up to the
+# classes), metrics, ROC ends; odds ratios from the variant without
+# rebalancing and standardized coefficients from the chosen one; the
+# permutation importance of the first variable recomputed with the chosen
+# model (same permutation, seed and rows).
+check_evaluation <- function(sel, train, test, vars, evaluated, tested, logistic, importance, rows,
+                             n_rep, seed) {
+  x_train <- train$x[vars]
+  refit <- fit_recipe(final_recipe(x_train), x_train, var_types_of(x_train))
+  x_test <- apply_recipe(refit, test$x[vars])
+  n_pos <- sum(test$y)
+  for (type in names(sel$variants)) {
+    for (b in balance_choices) {
+      v <- sel$variants[[type]][[b]]
+      e <- evaluated[[type]][[b]]
+      row <- tested[model == type & balance == b]
+      prob <- predict_proba(sel$models[[type]][[b]], x_test)
+      cm <- unclass(confusion(test$y, prob, v$threshold))
+      stopifnot(
+        identical(e$prob, as.vector(prob)), e$auc == roc_curve(test$y, prob)$auc,
+        identical(e$confusion, cm), cm[["tp"]] + cm[["fn"]] == n_pos,
+        cm[["fp"]] + cm[["tn"]] == length(test$y) - n_pos,
+        identical(e$metrics, threshold_metrics(test$y, prob, v$threshold)$metrics),
+        nrow(row) == 1, row$threshold == v$threshold, row$auc == e$auc, row$tp == cm[["tp"]],
+        row$fp == cm[["fp"]], row$fn == cm[["fn"]], row$tn == cm[["tn"]],
+        row$chosen == (b == sel$chosen[[type]]$balance),
+        nrow(e$roc) <= 1000, e$roc$fpr[1] == 0, e$roc$tpr[1] == 0,
+        utils::tail(e$roc$fpr, 1) == 1, utils::tail(e$roc$tpr, 1) == 1
+      )
+    }
+  }
+  chosen_glm <- sel$models$glm[[sel$chosen$glm$balance]]
+  beta <- stats::coef(chosen_glm$fit)
+  odds <- exp(stats::coef(sel$models$glm$none$fit))
+  stopifnot(
+    isTRUE(all.equal(logistic$odds_ratio, unname(odds[logistic$term]))),
+    isTRUE(all.equal(logistic$coefficient, unname(beta[logistic$term]))),
+    all(logistic$lower <= logistic$odds_ratio), all(logistic$odds_ratio <= logistic$upper)
+  )
+  for (type in names(importance)) {
+    model <- sel$models[[type]][[sel$chosen[[type]]$balance]]
+    first <- perm_importance(function(raw) predict_proba(model, apply_recipe(refit, raw)),
+                             test$x[rows, vars], test$y[rows], vars[1], n_rep, seed)
+    stopifnot(setequal(importance[[type]]$variable, vars),
+              isTRUE(all.equal(first$importance, importance[[type]]$importance[importance[[type]]$variable == vars[1]])))
+  }
+  invisible(TRUE)
+}
+
 # Sort of a score for weighted_auc(): order of the rows by increasing score,
 # and the last sorted position of each group of tied scores.
 score_sort <- function(score) {
@@ -365,6 +420,27 @@ cluster_bootstrap_auc <- function(y, scores, accident, B, seed) {
   })
 }
 
+# Built by hand: ties count 1/2, a constant score gives 0.5, a weight equals
+# a repeated row, a score given twice gets identical draws (paired), and
+# accidents of two identical rows give the draws of one row per accident (the
+# unit is the accident, not the row).
+local({
+  y <- c(1, 0, 1, 0)
+  s <- c(0.9, 0.9, 0.2, 0.1)  # pairs (pos, neg): 1/2, 1, 0, 1
+  stopifnot(
+    weighted_auc(y, score_sort(s), rep(1, 4)) == 0.625,
+    weighted_auc(y, score_sort(rep(0.3, 4)), rep(1, 4)) == 0.5,
+    isTRUE(all.equal(weighted_auc(y, score_sort(s), c(2, 1, 1, 1)), 4 / 6))
+  )
+  y <- c(1, 0, 1, 0, 0, 1)
+  s <- c(0.8, 0.3, 0.4, 0.6, 0.1, 0.5)
+  pair <- cluster_bootstrap_auc(y, list(a = s, b = s), 1:6, 50, 7)
+  single <- cluster_bootstrap_auc(y, list(a = s), 1:6, 50, 7)
+  double <- cluster_bootstrap_auc(rep(y, each = 2), list(a = rep(s, each = 2)), rep(1:6, each = 2), 50, 7)
+  stopifnot(identical(pair[, "a"], pair[, "b"]), length(unique(pair[, "a"])) > 1,
+            isTRUE(all.equal(single[, "a"], double[, "a"])))
+})
+
 # Point estimate on the test year and 95 % percentile interval of each AUC
 # and of each difference (a - b) of AUC.
 interval_table <- function(estimate, draws, differences) {
@@ -378,6 +454,20 @@ interval_table <- function(estimate, draws, differences) {
       one(paste(p[1], "-", p[2]), estimate[[p[1]]] - estimate[[p[2]]], draws[, p[1]] - draws[, p[2]])
     }))
   )
+}
+
+# Recomputes the intervals: no missing draw, ordered bounds, and for each
+# difference a - b the quantiles of draws[, a] - draws[, b].
+check_intervals <- function(intervals, estimate, draws, differences) {
+  stopifnot(!anyNA(draws), all(intervals$lower <= intervals$upper),
+            nrow(intervals) == length(estimate) + length(differences))
+  for (p in differences) {
+    row <- intervals[quantity == paste(p[1], "-", p[2])]
+    q <- unname(stats::quantile(draws[, p[1]] - draws[, p[2]], c(0.025, 0.975)))
+    stopifnot(nrow(row) == 1, row$estimate == estimate[[p[1]]] - estimate[[p[2]]],
+              row$lower == q[1], row$upper == q[2])
+  }
+  invisible(TRUE)
 }
 
 # --- Stability of the coding -----------------------------------------------------
@@ -439,7 +529,10 @@ invisible(gc(full = TRUE))
 
 # --- Blind check -------------------------------------------------------------------
 
-# The selection with the 2024 labels permuted gives the same grid and choices.
+# The selection gives the same grid, variants and choices without any 2024
+# row: neither its labels nor its predictors can reach the choices. During
+# the second run the global `full` itself has no 2024 row, so a function
+# reading it instead of its argument would not escape the check.
 blind_run <- function(data) {
   p <- year_parts(data, blind_fraction, seed)
   check_parts(data, p)
@@ -451,22 +544,22 @@ blind_run <- function(data) {
 }
 t0 <- elapsed()
 blind_real <- blind_run(full)
-permuted <- copy(full)
-set.seed(seed)
-permuted[an == test_year, grave := grave[sample.int(.N)]]
-stopifnot(!identical(permuted$grave, full$grave), identical(permuted[an != test_year], full[an != test_year]))
-blind_permuted <- blind_run(permuted)
-rm(permuted)
+full_kept <- full
+full <- full[an != test_year]
+stopifnot(nrow(full) < nrow(full_kept), !any(full$an == test_year))
+blind_without <- blind_run(full)
+full <- full_kept
+rm(full_kept)
 same <- function(a, b) {
   keep <- c("grid", "variants", "chosen")
   identical(lapply(a, `[`, keep), lapply(b, `[`, keep))
 }
-stopifnot(same(blind_real, blind_permuted))
-cat(sprintf(paste0("\nBlind check: with the %d labels permuted, same AUC on %d, settings, rebalancing and ",
+stopifnot(same(blind_real, blind_without))
+cat(sprintf(paste0("\nBlind check: without any %d row, same AUC on %d, settings, rebalancing and ",
                    "thresholds (%d fits per run, %g %% of the training accidents, %.1f s).\n"),
             test_year, valid_year, sum(vapply(blind_real, function(b) nrow(b$grid), integer(1))),
             100 * blind_fraction, elapsed() - t0))
-rm(blind_permuted)
+rm(blind_without)
 invisible(gc(full = TRUE))
 
 # --- Selection ---------------------------------------------------------------------
@@ -487,7 +580,8 @@ cat(sprintf("Naive references on %d: constant score AUC %.2f; all positive: prec
 
 test <- test_part(full)
 importance_rows_test <- sample_rows(length(test$y), importance_size, groups = test$accident, seed = seed)
-cat(sprintf("Test %d: %d users, %d accidents, share of grave %.2f %%, read after the selection of each specification\n",
+stopifnot(setequal(importance_rows_test, which(test$accident %in% test$accident[importance_rows_test])))
+cat(sprintf("Test %d: %d users, %d accidents, share of grave %.2f %%, never given to select_models()\n",
             test_year, length(test$y), uniqueN(test$accident), 100 * mean(test$y)))
 
 selection <- list()
@@ -529,6 +623,10 @@ for (spec in c("main", "ablation")) {
                                                     sd = round(sd, 4))], 8))
   }
   cat(sprintf("\nEvaluation of the %s specification: %.1f s\n", spec, elapsed() - t_eval))
+  t_check <- elapsed()
+  check_evaluation(sel, parts$train, test, vars, evaluated, tested, logistic, importance,
+                   importance_rows_test, importance_reps, seed)
+  cat(sprintf("Evaluation recomputed independently: %.1f s\n", elapsed() - t_check))
 
   for (type in names(evaluated)) {
     for (b in names(evaluated[[type]])) {
@@ -565,7 +663,8 @@ cat(sprintf("Ablation logistic regressions: %s aliased coefficients.\n",
 
 # The weighted AUC with weights 1 is the AUC of pROC, and with the weights of
 # one draw the AUC of the rows repeated (checked on two scores).
-check_names <- names(probabilities)[1:2]
+check_names <- c("main glm none", "main rpart none")  # the tree has many tied scores
+stopifnot(all(check_names %in% names(probabilities)))
 w_check <- with_seed(seed + 1, tabulate(sample.int(uniqueN(test$accident), uniqueN(test$accident),
                                                     replace = TRUE), uniqueN(test$accident)))
 w_check <- w_check[match(test$accident, unique(test$accident))]
@@ -599,6 +698,7 @@ differences <- c(
   lapply(types, function(type) c(chosen_key("ablation", type), chosen_key("main", type)))
 )
 intervals <- interval_table(estimate, draws, differences)
+check_intervals(intervals, estimate, draws, differences)
 cat(sprintf("\n## AUC on %d and differences, 95 %% percentile intervals, bootstrap by accident (B = %d, %.1f s)\n\n",
             test_year, boot_draws, elapsed() - t0))
 show(intervals[, .(quantity, estimate = round(estimate, 4), lower = round(lower, 4), upper = round(upper, 4))])
@@ -647,9 +747,11 @@ show(both(selection)[model == "ranger", .(min_mb = round(min(forest_mb)), max_mb
                      by = .(spec, node = sub(".*min.node.size = ", "", setting))])
 
 # Estimate for the whole training set, on a run below 100 %: for each fit of
-# the blind grid, the exponent b of t = a n^b between the blind sample and
-# train_fraction (same specification, model, rebalancing and setting); the
-# median exponent of each model scales the time measured at train_fraction.
+# the blind grid that is also in settings_grid, the exponent b of t = a n^b
+# between the blind sample and train_fraction (same specification, model,
+# rebalancing and setting); the median exponent of each model scales the time
+# measured at train_fraction. Only the forest setting mtry = 5,
+# min.node.size = 200 is in both grids.
 if (train_fraction > blind_fraction && train_fraction < 1) {
   matched <- merge(both(blind_real), both(selection), by = c("spec", "model", "balance", "setting"),
                    suffixes = c("_small", "_large"))
@@ -672,6 +774,6 @@ if (train_fraction > blind_fraction && train_fraction < 1) {
   show(size[, .(spec, balance, setting, mb_small = round(mb_small, 1), mb_large = round(mb_large, 1),
                 exponent = round(exponent, 2), mb_full = round(mb_full))])
 }
-cat(sprintf("\nR heap peak of the selection: %.0f MB (gc max used, Ncells and Vcells; ranger grows its trees outside the R heap)\n",
+cat(sprintf("\nR heap peak of the selection and the evaluation: %.0f MB (gc max used, Ncells and Vcells; ranger grows its trees outside the R heap)\n",
             sum(mem[, ncol(mem)])))
 cat(sprintf("Total time of the script: %.1f s\n", elapsed() - started_all))
