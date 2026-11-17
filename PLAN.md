@@ -442,7 +442,7 @@ Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
     - temps et mémoire du run à 10 % imprimés, grille comprise, et estimation pour le run complet.
   - Hors périmètre : run complet, intervalles, importances (E12b).
 
-- [ ] **E12b. Run complet et résultats de l'étude**
+- [x] **E12b. Run complet et résultats de l'étude**
   - Dépend de : E11b, E12a.
   - Objectif : résultats de modélisation de l'étude, reproductibles, sans fuite.
   - Contenu :
@@ -456,6 +456,7 @@ Couvre : la fin de la modélisation (A.3) et les résultats de l'étude (A.4).
     - métriques sur 2024 imprimées ;
     - `final_models.rds` de quelques Mo au plus.
   - Hors périmètre : rédaction de l'onglet 5.
+  - Fait (17 novembre) : run complet sur tout 2019-2022 en 65 min sur le Mac M1, `final_models.rds` de 0,11 Mo. Tailles de nœud de la forêt passées de {10, 50, 200} à {50, 200, 500} avant le run (décidé le 17 novembre) : à 10 % de l'entraînement, 10 n'était jamais la meilleure sur 2023, et sur tout l'entraînement une de ses forêts aurait pesé 2,2 à 2,7 Go. Pour chaque modèle, le meilleur réglage avec et sans pondération est évalué sur 2024 (la comparaison pondération contre aucun rééquilibrage de E13) ; le modèle retenu reste celui de plus forte AUC sur 2023.
 
 - [x] **Redéploiement J5** : après fusion de E11b, chaîne complète de l'onglet 4 (trois modèles, ROC, seuils, importances, rééquilibrage) sur l'URL publique, avec BAAC et `students.csv` ; temps du clic « Entraîner » sur 20 000 lignes BAAC (critère de 30 s, ou celui fixé en E11a), temps des importances, et mémoire de l'instance après deux sessions entraînées, comparée aux 832,5 Mio du redéploiement J4 ; limites de l'offre gratuite du README relues avec leur commande ou leur source.
 
