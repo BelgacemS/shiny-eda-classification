@@ -37,7 +37,13 @@ VARIABLE_LABELS <- c(
   vosp = "voie réservée", prof = "profil de la route", plan = "tracé en plan", surf = "état de la surface",
   infra = "aménagement", situ = "situation de l'accident", vma = "vitesse maximale autorisée",
   col = "type de collision", choc = "point de choc", obs = "obstacle fixe heurté",
-  obsm = "obstacle mobile heurté"
+  obsm = "obstacle mobile heurté",
+  Num_Acc = "identifiant de l'accident", id_vehicule = "identifiant du véhicule",
+  id_usager = "identifiant de l'usager", place = "place dans le véhicule", locp = "localisation du piéton",
+  actp = "action du piéton", etatp = "piéton seul ou accompagné", catv = "catégorie de véhicule détaillée",
+  senc = "sens de circulation", motor = "motorisation", occutc = "occupants d'un transport en commun",
+  dep = "département", nbv = "nombre de voies", lartpc = "largeur du terre-plein central",
+  larrout = "largeur de la chaussée", lat = "latitude", long = "longitude"
 )
 VARIABLE_DESCRIPTIONS <- c(
   grave = "« oui » si l'usager est tué ou blessé hospitalisé, « non » s'il est indemne ou blessé léger : la cible",
@@ -47,7 +53,8 @@ VARIABLE_DESCRIPTIONS <- c(
   sexe = "sexe de l'usager",
   age = "âge de l'usager, année de l'accident moins année de naissance",
   trajet = "motif du déplacement au moment de l'accident (domicile-travail, loisirs...)",
-  secu_ceinture = "ceinture utilisée (oui ou non)", secu_casque = "casque utilisé",
+  secu_ceinture = "« oui » si une ceinture est déclarée, « non » sinon (piétons, deux-roues et équipements indéterminés compris)",
+  secu_casque = "casque utilisé",
   secu_enfant = "dispositif pour enfants utilisé", secu_gilet = "gilet réfléchissant utilisé",
   secu_airbag = "airbag de deux- ou trois-roues utilisé", secu_gants = "gants de deux- ou trois-roues utilisés",
   secu_indetermine = "équipement de sécurité non déterminable ou non renseigné",
@@ -60,7 +67,7 @@ VARIABLE_DESCRIPTIONS <- c(
   int = "type d'intersection (hors intersection, en X, en T, giratoire...)",
   atm = "conditions atmosphériques : normale, pluie, neige, brouillard, vent fort...",
   catr = "catégorie de route : autoroute, nationale, départementale, voie communale...",
-  circ = "régime de circulation : sens unique, double sens, chaussées séparées",
+  circ = "régime de circulation : sens unique, double sens, chaussées séparées, voies d'affectation variable ; « Non renseigné » ajouté pour les modèles",
   vosp = "existence d'une voie réservée (piste ou bande cyclable, voie réservée)",
   prof = "profil en long : plat, pente, sommet ou bas de côte",
   plan = "tracé en plan : partie rectiligne ou courbe",
@@ -71,11 +78,33 @@ VARIABLE_DESCRIPTIONS <- c(
   col = "type de collision : frontale, par l'arrière, par le côté, en chaîne...",
   choc = "point de choc initial sur le véhicule",
   obs = "obstacle fixe heurté (arbre, glissière, poteau...)",
-  obsm = "obstacle mobile heurté (piéton, véhicule, animal...)"
+  obsm = "obstacle mobile heurté (piéton, véhicule, animal...)",
+  Num_Acc = "identifiant de l'accident : garde les usagers d'un même accident ensemble",
+  id_vehicule = "identifiant du véhicule", id_usager = "identifiant de l'usager",
+  place = "place occupée dans le véhicule ; écartée, presque un détail de catu",
+  locp = "localisation du piéton ; écartée, sans objet pour tout autre usager, donc redondante avec catu",
+  actp = "action du piéton ; écartée pour la même raison que locp",
+  etatp = "piéton seul ou accompagné ; écartée pour la même raison que locp",
+  catv = "catégorie du véhicule détaillée ; écartée, regroupée dans catv_groupe",
+  senc = "sens de circulation par rapport aux repères de la route ; écartée, décrit la route et non l'accident",
+  motor = "motorisation du véhicule ; écartée, part de « Inconnue » instable d'une année à l'autre",
+  occutc = "nombre d'occupants d'un transport en commun ; écartée, manquante pour tous les autres véhicules",
+  dep = "département de l'accident ; écartée, localise l'accident (96 modalités)",
+  nbv = "nombre total de voies de circulation ; écartée, les valeurs manquantes changent de sens en 2023",
+  lartpc = "largeur du terre-plein central, en m ; écartée, manquante pour presque tous les usagers",
+  larrout = "largeur de la chaussée, en m ; écartée, manquante pour la plupart des usagers et codage changé en 2023",
+  lat = "latitude de l'accident ; écartée, identifie le lieu exact",
+  long = "longitude de l'accident ; écartée, identifie le lieu exact"
 )
 
-# Quantitative columns of the models (the others are qualitative).
+# Quantitative columns of the models (the others are qualitative), columns of
+# the sample left out of the models (data-raw/model_vars.R: model_excluded,
+# plus the coordinates), and identifiers.
 QUANTITATIVE_VARS <- c("age", "vma")
+EXCLUDED_VARS <- c("place", "locp", "actp", "etatp", "catv", "senc", "motor", "occutc", "dep", "nbv",
+                   "lartpc", "larrout", "lat", "long")
+IDENTIFIER_VARS <- c("Num_Acc", "id_vehicule", "id_usager")
+EXCLUDED_QUANTITATIVE <- c("occutc", "nbv", "lartpc", "larrout", "lat", "long")
 
 # "label (code)", for axis titles and replay steps.
 variable_label <- function(code) {
@@ -83,13 +112,23 @@ variable_label <- function(code) {
   sprintf("%s (%s)", unname(VARIABLE_LABELS[code]), code)
 }
 
-# Table of the variables: code, meaning, type in the models, role.
+# Table of every column of the sample: code, meaning, type, role. Without the
+# results (main_vars empty), the variables of the models are listed without
+# saying which specification uses them.
 variable_glossary <- function(main_vars, ablation_vars) {
-  codes <- c(CASE_STUDY_TARGET, "grav", "an", main_vars, setdiff(ablation_vars, main_vars))
-  role <- ifelse(codes == CASE_STUDY_TARGET, "cible",
-                 ifelse(codes %in% c("grav", "an"), "jamais dans les modèles",
-                        ifelse(codes %in% main_vars, "modèle principal", "ablation seulement")))
-  type <- ifelse(codes %in% QUANTITATIVE_VARS, "quantitative", "qualitative")
+  fixed <- c(CASE_STUDY_TARGET, "grav", "an")
+  others <- setdiff(names(VARIABLE_DESCRIPTIONS), c(fixed, EXCLUDED_VARS, IDENTIFIER_VARS))
+  model <- unique(c(main_vars, ablation_vars, others))
+  codes <- c(fixed, model, EXCLUDED_VARS, IDENTIFIER_VARS)
+  role <- rep(if (length(main_vars) == 0) "variable des modèles" else "hors des modèles", length(codes))
+  role[codes %in% setdiff(ablation_vars, main_vars)] <- "ablation seulement"
+  role[codes %in% main_vars] <- "modèle principal"
+  role[codes %in% EXCLUDED_VARS] <- "écartée des modèles"
+  role[codes %in% IDENTIFIER_VARS] <- "identifiant"
+  role[codes %in% c("grav", "an")] <- "jamais dans les modèles"
+  role[codes == CASE_STUDY_TARGET] <- "cible"
+  type <- ifelse(codes %in% c(QUANTITATIVE_VARS, EXCLUDED_QUANTITATIVE), "quantitative", "qualitative")
+  type[codes %in% c(IDENTIFIER_VARS, "dep")] <- "identifiant"
   type[codes == "an"] <- "quantitative (qualitative pour Q1)"
   type[codes == "vma"] <- "quantitative (qualitative pour Q3)"
   data.frame(Code = codes, Signification = unname(VARIABLE_DESCRIPTIONS[codes]), Type = type,

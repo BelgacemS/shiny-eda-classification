@@ -146,6 +146,14 @@ enumerate_fr <- function(x) {
   paste(paste(x[-length(x)], collapse = ", "), "et", x[length(x)])
 }
 
+# Permutation importances with "label (code)" as variable names, for the plot.
+labelled_importance <- function(importance) {
+  lapply(importance, function(d) {
+    d$variable <- variable_label(d$variable)
+    d
+  })
+}
+
 # Odds ratio of one term of the logistic regression without rebalancing.
 odds_ratio_of <- function(spec, term) {
   row <- spec$logistic[spec$logistic$term == term, , drop = FALSE]
