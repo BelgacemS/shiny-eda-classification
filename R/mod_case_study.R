@@ -19,7 +19,10 @@ mod_case_study_ui <- function(id) {
   tagList(
     uiOutput(ns("status")),
     tabsetPanel(
-      tabPanel("Question et démarche", prose(uiOutput(ns("approach")))),
+      tabPanel("Question et démarche", prose(uiOutput(ns("approach")),
+                                             h3("Les variables"),
+                                             helpText("Codes des colonnes tels que l'app les affiche, et leur signification d'après le guide de codification des BAAC."),
+                                             tableOutput(ns("glossary")))),
       tabPanel(
         "Q1 Gravité",
         prose(
@@ -61,8 +64,9 @@ mod_case_study_ui <- function(id) {
         prose(
           h3("Liaison de chaque condition avec la gravité"),
           tableOutput(ns("q3_table")),
-          helpText("C de Cramér pour une variable quali (entre 0 et 1), rapport de corrélation c pour",
-                   "l'âge (entre 0 et 1, autre indice) : ne comparer qu'à indice égal."),
+          helpText("C de Cramér pour une variable qualitative (entre 0 et 1, 0 sans lien), rapport de",
+                   "corrélation c pour l'âge, variable quantitative (entre 0 et 1, autre indice) : ne comparer",
+                   "qu'à indice égal."),
           do.call(replay_steps, c(replay_load(), list(
             "Onglet Exploration, Bivariée, « Liaisons avec une cible » : Variable cible grave."))),
           uiOutput(ns("q3_text")),
@@ -78,6 +82,13 @@ mod_case_study_ui <- function(id) {
         "Modèles",
         prose(
           h3("Comparaison sur 2024, spécification principale"),
+          p(paste("Lire les métriques. Chaque modèle donne à chaque usager une probabilité d'être grave ; au-dessus",
+                  "d'un seuil, il le déclare grave. L'AUC (aire sous la courbe ROC) est la probabilité qu'un usager",
+                  "grave tiré au hasard reçoive une probabilité plus haute qu'un usager non grave : 0,5 pour un",
+                  "tirage au hasard, 1 pour un classement parfait ; elle ne dépend pas du seuil. Au seuil, la",
+                  "Precision est la part de vrais graves parmi les usagers déclarés graves, le Recall la part des",
+                  "usagers graves retrouvés, et le F1 leur moyenne harmonique. IC 95 % : intervalle de confiance",
+                  "à 95 %.")),
           tableOutput(ns("test_table")),
           uiOutput(ns("test_text")),
           plotOutput(ns("roc_plot"), height = "420px"),
@@ -169,10 +180,12 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
             tags$li(paste("Ablation :", enumerate_fr(crash_vars(final_results)), "décrivent le choc lui-même (type de collision, point",
                           "de choc, obstacle), pas les conditions de l'accident. Ils sont absents du modèle",
                           "principal et ajoutés dans une variante, pour mesurer ce qu'ils apportent.")),
-            tags$li(sprintf(paste("Trois modèles : régression logistique, forêt aléatoire (%d arbres, mtry dans {%s},",
-                                  "taille minimale des nœuds dans {%s}) et arbre de décision (cp dans {%s}). Chaque",
-                                  "réglage est essayé sans rééquilibrage et avec pondération des classes ; le",
-                                  "meilleur est choisi sur l'AUC de %d, et le seuil au F1 maximal sur %d."),
+            tags$li(sprintf(paste("Trois modèles : régression logistique, forêt aléatoire de %d arbres (mtry, le",
+                                  "nombre de variables tirées au hasard à chaque coupure, dans {%s} ; taille minimale",
+                                  "des nœuds dans {%s}) et arbre de décision (cp, le gain minimal pour couper un nœud,",
+                                  "dans {%s}). Chaque réglage est essayé sans rééquilibrage et avec pondération des",
+                                  "classes (les usagers graves, minoritaires, pèsent plus) ; le meilleur est choisi sur",
+                                  "l'AUC de %d (définie dans l'onglet Modèles), et le seuil au F1 maximal sur %d."),
                             m$ranger_trees, values(grid$ranger, "mtry"), values(grid$ranger, "min.node.size"),
                             values(grid$rpart, "cp"), m$valid_year, m$valid_year)),
             tags$li(sprintf(paste("Prétraitement appris sur l'entraînement seul : imputation par la médiane et la",
@@ -188,7 +201,8 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
         h3("Question"),
         p(paste("Quels facteurs sont associés à la gravité de l'accident pour une personne impliquée ? Un",
                 "usager est grave s'il est tué ou blessé hospitalisé : la variable grave vaut « oui » quand",
-                "grav vaut « Tué » ou « Blessé hospitalisé »." )),
+                "grav (gravité de blessure en quatre niveaux) vaut « Tué » ou « Blessé hospitalisé ». Le tableau",
+                "en bas de cet onglet donne le sens de chaque code de variable." )),
         h3("Données"),
         tags$ul(
           tags$li(paste("Bases annuelles des accidents corporels de la circulation routière (BAAC), ONISR,",
@@ -201,7 +215,7 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
                                 "n'est pas observée mais vaut « indemne » dans les fichiers."),
                           format_count(sum(FULL_TABLE_YEARS$users)))),
           tags$li(paste("Recodages : -1 et cellules vides deviennent des valeurs manquantes ; âge, jour de la",
-                        "semaine, mois et tranche horaire calculés ; catégorie de véhicule regroupée",
+                        "semaine, mois et tranche horaire calculés ; catégorie de véhicule regroupée en 13 classes",
                         "(catv_groupe) ; les trois cases secu1 à secu3, qui listent les équipements sans ordre,",
                         "remplacées par six indicateurs (ceinture, casque, dispositif enfants, gilet, airbag,",
                         "gants) et un indicateur d'équipement indéterminé.")),
@@ -210,6 +224,12 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
         models
       )
     })
+
+    output$glossary <- renderTable({
+      main <- if (!is.null(final_results)) final_results$specs$main$vars else character(0)
+      ablation <- if (!is.null(final_results)) final_results$specs$ablation$vars else character(0)
+      variable_glossary(main, ablation)
+    }, align = "llll")
 
     # --- Q1 -------------------------------------------------------------------------
 
@@ -225,7 +245,7 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
                 pct(f[["Blessé hospitalisé"]] + f[["Tué"]])))
     })
 
-    output$year_plot <- renderPlot(profile_plot(profiles()$an, "an"))
+    output$year_plot <- renderPlot(profile_plot(profiles()$an))
     output$year_table <- renderTable(profile_table(profiles()$an), align = "lrrr")
     output$year_indices <- renderText(profile_indices(profiles()$an))
     output$year_text <- renderUI({
@@ -254,7 +274,7 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
 
     # --- Q2 -------------------------------------------------------------------------
 
-    output$catu_plot <- renderPlot(profile_plot(profiles()$catu, "catu"))
+    output$catu_plot <- renderPlot(profile_plot(profiles()$catu))
     output$catu_table <- renderTable(profile_table(profiles()$catu), align = "lrrr")
     output$catu_indices <- renderText(profile_indices(profiles()$catu))
     output$catu_text <- renderUI({
@@ -263,7 +283,7 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
                 pct(share_of(pr, "Piéton")), pct(share_of(pr, "Conducteur")), pct(share_of(pr, "Passager"))))
     })
 
-    output$catv_plot <- renderPlot(profile_plot(profiles()$catv_groupe, "catv_groupe"))
+    output$catv_plot <- renderPlot(profile_plot(profiles()$catv_groupe))
     output$catv_table <- renderTable(profile_table(profiles()$catv_groupe), align = "lrrr")
     output$catv_indices <- renderText(profile_indices(profiles()$catv_groupe))
     output$catv_text <- renderUI({
@@ -271,7 +291,8 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
       by_user <- crossed("catv_groupe", "catu")
       tagList(
         p(sprintf(paste("Les usagers de deux-roues motorisés de plus de 125 cm³ sont les plus souvent graves (%s %%),",
-                        "devant ceux de 50 cm³ ou moins (%s %%), de 50 à 125 cm³ (%s %%) et les cyclistes (%s %%) ;",
+                        "devant ceux de 50 cm³ ou moins (%s %%), de 50 à 125 cm³ (%s %%) et les cyclistes (%s %%)",
+                        "(2RM/3RM dans le tableau : deux- ou trois-roues motorisés) ;",
                         "trottinettes et autres engins de déplacement personnels (EDP) : %s %%. Les usagers",
                         "rattachés à un véhicule léger (VL) sont graves dans %s %% des cas, ceux d'un poids lourd",
                         "dans %s %%. Le véhicule est l'une des conditions les plus liées à la gravité",
@@ -357,7 +378,7 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
 
     output$q3_plot <- renderPlot({
       req(input$q3_var)
-      if (input$q3_var == "age") age_plot(sample_ds()) else profile_plot(profiles()[[input$q3_var]], input$q3_var)
+      if (input$q3_var == "age") age_plot(sample_ds()) else profile_plot(profiles()[[input$q3_var]])
     })
     output$q3_detail <- renderTable({
       req(input$q3_var)
@@ -382,7 +403,7 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
       req(input$q3_var)
       v <- input$q3_var
       last <- if (v == "age") {
-        "Onglet Exploration, Bivariée, « Couple de variables » : Variable X age, Variable Y grave (boîtes parallèles et tableau des groupes)."
+        "Onglet Exploration, Bivariée, « Couple de variables » : Variable X age (âge), Variable Y grave (usager grave) ; l'âge est quantitatif, l'onglet montre alors des boîtes parallèles et le tableau des groupes."
       } else {
         replay_pair(v)
       }
@@ -466,14 +487,25 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
                 if (length(unique(top)) == 1) "les trois modèles" else "les modèles",
                 format_number(forest$importance[1], 3), paste(forest$variable[2:6], collapse = ", ")))
     })
-    output$importance_plot <- renderPlot(importance_plot(final()$specs$main$importance))
-    output$logistic_table <- renderTable(logistic_table(final()$specs$main$logistic, n_top = 15), align = "lrrrrrl")
+    output$importance_plot <- renderPlot({
+      imp <- lapply(final()$specs$main$importance, function(d) transform(d, variable = variable_label(variable)))
+      importance_plot(imp)
+    })
+    output$logistic_table <- renderTable({
+      spec <- final()$specs$main
+      logistic <- spec$logistic
+      logistic$term <- pretty_term(logistic$term, spec$vars)
+      logistic_table(logistic, n_top = 15)
+    }, align = "lrrrrrl")
     output$logistic_text <- renderUI({
       spec <- final()$specs$main
       or <- function(term) format_interval(odds_ratio_of(spec, term), 2)
       fitted <- if (chosen_balance(spec)[["glm"]] == "weights") "pondérée" else "sans rééquilibrage"
       p(sprintf(paste("|β| × s : coefficient de la logistique %s multiplié par l'écart-type (1/n) de sa",
-                      "colonne. Odds ratios et IC à 95 %% (Wald) sur la logistique sans rééquilibrage, à autres",
+                      "colonne : l'effet d'une variation d'un écart-type, comparable d'une variable à l'autre. Un odds",
+                      "ratio compare les chances d'être grave, p / (1 − p), à celles de la modalité de référence : 2",
+                      "veut dire des chances doublées, 0,5 divisées par deux. Odds ratios et IC à 95 %% (Wald, calculés à partir de",
+                      "l'erreur standard du coefficient) sur la logistique sans rééquilibrage, à autres",
                       "variables égales et par rapport à la modalité la plus fréquente de l'entraînement : ceinture",
                       "non (contre oui) %s, piéton (contre conducteur) %s, hors agglomération %s, autoroute",
                       "(contre route départementale) %s. Ces",
@@ -528,7 +560,7 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
                 "20 000 lignes de l'échantillon au lieu de toute la table, apprend sur 2019-2023 avec une validation",
                 "interne au lieu de 2019-2022 avec 2023, garde les réglages par défaut de la forêt et de l'arbre",
                 "(cp = 0,01, un arbre bien plus petit), n'applique pas les recodages de data-raw/model_vars.R",
-                "(vosp, catr, trajet, circ), regroupe les modalités rares de toutes les variables quali et calcule",
+                "(vosp, catr, trajet, circ), regroupe les modalités rares de toutes les variables qualitatives et calcule",
                 "les importances sur 1 000 lignes du test par défaut. Son test ne compte que les usagers de 2024",
                 "tirés dans ces 20 000 lignes, quelques milliers : un écart d'AUC de l'ordre de 0,01 n'y est pas",
                 "mesurable, et la forêt, qui gagne le plus à avoir beaucoup de données, peut y passer derrière la",

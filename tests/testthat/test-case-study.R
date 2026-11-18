@@ -321,10 +321,10 @@ test_that("the descriptive sentences give the right figures", {
     session$setInputs(q3_var = "age")
     x <- s$age[s$grave == "oui"]
     expect_has(plain(output$q3_detail), num(sqrt(mean((x - mean(x))^2))))
-    expect_has(plain(output$q3_replay), "Variable X age, Variable Y grave")
+    expect_has(plain(output$q3_replay), "Variable X age (âge), Variable Y grave (usager grave)")
     session$setInputs(q3_var = "vma")
-    expect_has(plain(output$q3_replay), "« Variables à retyper » an et vma, « Nouveau type » Qualitative (quali)")
-    expect_has(plain(output$q3_replay), "Variable X vma, Variable Y grave")
+    expect_has(plain(output$q3_replay), "« Variables à retyper » an (année) et vma (vitesse maximale autorisée), « Nouveau type » Qualitative (quali)")
+    expect_has(plain(output$q3_replay), "Variable X vma (vitesse maximale autorisée), Variable Y grave (usager grave)")
     session$setInputs(q3_var = "catr")
     expect_false(grepl("retyper", plain(output$q3_replay)))
     detail <- plain(output$q3_detail)
@@ -347,12 +347,53 @@ test_that("the vma sentence names the cells with a small expected count only whe
   })
 })
 
+test_that("every variable quoted has its meaning, and the text says qualitative and quantitative", {
+  final <- fake_final()
+  codes <- c(CASE_STUDY_TARGET, "grav", "an", final$specs$ablation$vars, Q3_VARS)
+  expect_true(all(codes %in% names(VARIABLE_LABELS)))
+  expect_true(all(codes %in% names(VARIABLE_DESCRIPTIONS)))
+  expect_equal(variable_label("vma"), "vitesse maximale autorisée (vma)")
+  expect_error(variable_label("inconnue"))
+  g <- variable_glossary(final$specs$main$vars, final$specs$ablation$vars)
+  expect_equal(g$Rôle[g$Code == "grave"], "cible")
+  expect_equal(g$Rôle[g$Code == "col"], "ablation seulement")
+  expect_equal(g$Rôle[g$Code == "catu"], "modèle principal")
+  expect_equal(g$Type[g$Code == "age"], "quantitative")
+  expect_equal(g$Type[g$Code == "catu"], "qualitative")
+  expect_match(g$Type[g$Code == "vma"], "^quantitative")
+  expect_false(anyDuplicated(g$Code) > 0)
+  expect_equal(pretty_term(c("secu_ceinturenon", "vma", "catrAutoroute", "x1"), c("secu_ceinture", "vma", "catr")),
+               c("ceinture (secu_ceinture) : non", "vitesse maximale autorisée (vma)",
+                 "type de route (catr) : Autoroute", "x1"))
+  # catv_groupe must not be read as catv followed by a level.
+  expect_equal(pretty_term("catv_groupeVélo", c("catv_groupe", "catu")), "catégorie de véhicule (catv_groupe) : Vélo")
+
+  shiny::testServer(mod_case_study_server, args = list(baac_sample = fake_sample(), final_results = final), {
+    texts <- character(0)
+    for (v in Q3_VARS) {
+      session$setInputs(q3_var = v)
+      texts <- c(texts, plain(output$q3_replay))
+    }
+    for (o in c("approach", "severity_text", "year_text", "catu_text", "catv_text", "q3_text", "test_text",
+                "balance_text", "ablation_text", "importance_text", "logistic_text", "coherence_text",
+                "model_replay", "limits", "conclusions", "glossary", "q3_table", "logistic_table")) {
+      texts <- c(texts, plain(output[[o]]))
+    }
+    texts <- c(texts, plain(htmltools::renderTags(mod_case_study_ui("cs"))$html))
+    # "Qualitative (quali)" is the label of tab 1; anything else says the word in full.
+    stripped <- gsub("Qualitative (quali)", "", paste(texts, collapse = " "), fixed = TRUE)
+    expect_false(grepl("\\b(quali|quanti)\\b", stripped, perl = TRUE))
+    expect_has(plain(output$logistic_table), "ceinture (secu_ceinture) : non")
+    expect_has(plain(output$glossary), "vitesse maximale autorisée sur le lieu et au moment de l'accident")
+  })
+})
+
 test_that("the static replay steps retype an and vma where the figure needs it", {
   html <- plain(htmltools::renderTags(mod_case_study_ui("cs"))$html)
   # Q1 by year and the Q3 table need the retype; the other static boxes do not.
   expect_equal(lengths(regmatches(html, gregexpr("Variables à retyper", html, fixed = TRUE))), 2)
-  expect_has(html, "Variable X an, Variable Y grave")
-  expect_has(html, "Variable X catu, Variable Y grave")
+  expect_has(html, "Variable X an (année), Variable Y grave (usager grave)")
+  expect_has(html, "Variable X catu (catégorie d'usager), Variable Y grave (usager grave)")
 })
 
 test_that("the model sentences read the right variants and intervals", {
@@ -397,7 +438,7 @@ test_that("the model sentences read the right variants and intervals", {
     t9 <- plain(output$approach)
     expect_has(t9, "choix des réglages et du seuil sur 2023 (300 usagers), une seule évaluation sur 2024 (500 usagers, 250 accidents)")
     expect_has(t9, "Ablation : col, choc, obs et obsm")
-    expect_has(t9, "mtry dans {3, 5}, taille minimale des nœuds dans {50}) et arbre de décision (cp dans {3e-04, 0.001})")
+    expect_has(t9, "à chaque coupure, dans {3, 5} ; taille minimale des nœuds dans {50}) et arbre de décision (cp, le gain minimal pour couper un nœud, dans {3e-04, 0.001})")
     expect_has(t9, "modalités de moins de 0,5 % regroupées")
     expect_has(t9, "Échantillon de l'app : 7 % des accidents")
   })
@@ -516,4 +557,10 @@ test_that("the model claims hold on the final results", {
   t <- spec$test
   expect_true(all(t$threshold[t$balance == "weights"] > t$threshold[t$balance == "none"] + 0.2))
   expect_equal(crash_vars(final), c("col", "choc", "obs", "obsm"))
+  # Every variable of the models has its meaning, and the types of the table of
+  # the variables are those the app detects.
+  expect_true(all(final$specs$ablation$vars %in% names(VARIABLE_DESCRIPTIONS)))
+  skip_if_not(file.exists(sample_path))
+  types <- detect_types(readRDS(sample_path))[final$specs$ablation$vars]
+  expect_setequal(names(types)[types == "quanti"], QUANTITATIVE_VARS)
 })

@@ -21,6 +21,81 @@ Q3_VARS <- c(
   "Âge" = "age"
 )
 
+# Meaning of the BAAC columns quoted in the tab, from the coding guide
+# (data-raw/raw/description-des-bases-de-donnees-annuelles.pdf) and the
+# variables built by data-raw/02_prepare_baac.R. Short label for plots and
+# sentences, description for the table of the variables.
+VARIABLE_LABELS <- c(
+  grave = "usager grave", grav = "gravité en quatre niveaux", an = "année",
+  catu = "catégorie d'usager", sexe = "sexe", age = "âge", trajet = "motif du déplacement",
+  secu_ceinture = "ceinture", secu_casque = "casque", secu_enfant = "dispositif enfants",
+  secu_gilet = "gilet réfléchissant", secu_airbag = "airbag", secu_gants = "gants",
+  secu_indetermine = "équipement indéterminé", catv_groupe = "catégorie de véhicule",
+  manv = "manœuvre avant l'accident", mois = "mois", jour_semaine = "jour de la semaine",
+  tranche_horaire = "tranche horaire", lum = "luminosité", agg = "agglomération", int = "intersection",
+  atm = "conditions atmosphériques", catr = "type de route", circ = "régime de circulation",
+  vosp = "voie réservée", prof = "profil de la route", plan = "tracé en plan", surf = "état de la surface",
+  infra = "aménagement", situ = "situation de l'accident", vma = "vitesse maximale autorisée",
+  col = "type de collision", choc = "point de choc", obs = "obstacle fixe heurté",
+  obsm = "obstacle mobile heurté"
+)
+VARIABLE_DESCRIPTIONS <- c(
+  grave = "« oui » si l'usager est tué ou blessé hospitalisé, « non » s'il est indemne ou blessé léger : la cible",
+  grav = "gravité de blessure : indemne, blessé léger, blessé hospitalisé, tué (source de la cible, jamais variable explicative)",
+  an = "année de l'accident (sert au découpage, jamais variable explicative)",
+  catu = "conducteur, passager ou piéton",
+  sexe = "sexe de l'usager",
+  age = "âge de l'usager, année de l'accident moins année de naissance",
+  trajet = "motif du déplacement au moment de l'accident (domicile-travail, loisirs...)",
+  secu_ceinture = "ceinture utilisée (oui ou non)", secu_casque = "casque utilisé",
+  secu_enfant = "dispositif pour enfants utilisé", secu_gilet = "gilet réfléchissant utilisé",
+  secu_airbag = "airbag de deux- ou trois-roues utilisé", secu_gants = "gants de deux- ou trois-roues utilisés",
+  secu_indetermine = "équipement de sécurité non déterminable ou non renseigné",
+  catv_groupe = "catégorie du véhicule de l'usager, en 13 classes (véhicule léger, vélo, deux-roues motorisés par cylindrée, poids lourd...) ; un piéton est rattaché au véhicule qui l'a heurté",
+  manv = "manœuvre principale du véhicule avant l'accident",
+  mois = "mois de l'accident", jour_semaine = "jour de la semaine de l'accident",
+  tranche_horaire = "tranche horaire de l'accident",
+  lum = "conditions d'éclairage : plein jour, crépuscule, nuit avec ou sans éclairage public",
+  agg = "accident en ou hors agglomération",
+  int = "type d'intersection (hors intersection, en X, en T, giratoire...)",
+  atm = "conditions atmosphériques : normale, pluie, neige, brouillard, vent fort...",
+  catr = "catégorie de route : autoroute, nationale, départementale, voie communale...",
+  circ = "régime de circulation : sens unique, double sens, chaussées séparées",
+  vosp = "existence d'une voie réservée (piste ou bande cyclable, voie réservée)",
+  prof = "profil en long : plat, pente, sommet ou bas de côte",
+  plan = "tracé en plan : partie rectiligne ou courbe",
+  surf = "état de la surface : normale, mouillée, verglacée...",
+  infra = "aménagement ou infrastructure : pont, souterrain, carrefour aménagé, chantier...",
+  situ = "situation de l'accident : sur chaussée, accotement, trottoir, piste cyclable...",
+  vma = "vitesse maximale autorisée sur le lieu et au moment de l'accident, en km/h",
+  col = "type de collision : frontale, par l'arrière, par le côté, en chaîne...",
+  choc = "point de choc initial sur le véhicule",
+  obs = "obstacle fixe heurté (arbre, glissière, poteau...)",
+  obsm = "obstacle mobile heurté (piéton, véhicule, animal...)"
+)
+
+# Quantitative columns of the models (the others are qualitative).
+QUANTITATIVE_VARS <- c("age", "vma")
+
+# "label (code)", for axis titles and replay steps.
+variable_label <- function(code) {
+  stopifnot(all(code %in% names(VARIABLE_LABELS)))
+  sprintf("%s (%s)", unname(VARIABLE_LABELS[code]), code)
+}
+
+# Table of the variables: code, meaning, type in the models, role.
+variable_glossary <- function(main_vars, ablation_vars) {
+  codes <- c(CASE_STUDY_TARGET, "grav", "an", main_vars, setdiff(ablation_vars, main_vars))
+  role <- ifelse(codes == CASE_STUDY_TARGET, "cible",
+                 ifelse(codes %in% c("grav", "an"), "jamais dans les modèles",
+                        ifelse(codes %in% main_vars, "modèle principal", "ablation seulement")))
+  type <- ifelse(codes %in% QUANTITATIVE_VARS, "quantitative", "qualitative")
+  type[codes == "an"] <- "quantitative (qualitative pour Q1)"
+  type[codes == "vma"] <- "quantitative (qualitative pour Q3)"
+  data.frame(Code = codes, Signification = unname(VARIABLE_DESCRIPTIONS[codes]), Type = type,
+             Rôle = role, check.names = FALSE)
+}
+
 # Share of the accidents of each year drawn into the app sample
 # (data-raw/02_prepare_baac.R, sample_fraction).
 SAMPLE_FRACTION <- 0.07
@@ -82,7 +157,7 @@ profile_indices <- function(profile) {
 
 # Row profiles in proportions, the "Proportions" graph of tab 3, with the share
 # of grave written on each bar.
-profile_plot <- function(profile, label) {
+profile_plot <- function(profile) {
   counts <- as.data.frame(profile$tab, stringsAsFactors = FALSE)
   names(counts) <- c("x", "y", "n")
   counts$x <- factor(counts$x, levels = rownames(profile$tab))
@@ -95,7 +170,7 @@ profile_plot <- function(profile, label) {
                                                    label = format_number(share, 1)),
                        inherit.aes = FALSE, vjust = -0.4, size = 3.5) +
     ggplot2::scale_fill_manual(values = c(non = "grey80", oui = "firebrick")) +
-    ggplot2::labs(x = label, y = "Proportion", fill = CASE_STUDY_TARGET,
+    ggplot2::labs(x = variable_label(profile$var), y = "Proportion", fill = variable_label(CASE_STUDY_TARGET),
                   caption = "Nombre au-dessus de la barre rouge : part de graves (%).") +
     ggplot2::theme_minimal(base_size = 13) +
     ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 35, hjust = 1))
@@ -112,12 +187,12 @@ severity_plot <- function(table) {
     ggplot2::geom_col(fill = "steelblue4", width = 0.7) +
     ggplot2::geom_text(ggplot2::aes(label = paste(format_number(100 * f, 1), "%")),
                        vjust = -0.4, size = 3.8) +
-    ggplot2::labs(x = "grav", y = "Effectif") +
+    ggplot2::labs(x = variable_label("grav"), y = "Effectif") +
     ggplot2::theme_minimal(base_size = 13)
 }
 
 # Q3: index of association of each condition with grave, from the table of
-# tab 3 ("Liaisons avec une cible"): C de Cramér for a quali variable,
+# tab 3 ("Liaisons avec une cible"): C de Cramér for a qualitative variable,
 # correlation ratio c for age.
 q3_associations <- function(ds) {
   table <- association_table(ds, CASE_STUDY_TARGET)
@@ -138,7 +213,7 @@ age_plot <- function(ds) {
   data <- data.frame(g = droplevels(ds$data[[CASE_STUDY_TARGET]][keep]), y = ds$data$age[keep])
   ggplot2::ggplot(data, ggplot2::aes(x = g, y = y)) +
     ggplot2::geom_boxplot(fill = "grey90", outlier.colour = "firebrick") +
-    ggplot2::labs(x = CASE_STUDY_TARGET, y = "age") +
+    ggplot2::labs(x = variable_label(CASE_STUDY_TARGET), y = variable_label("age")) +
     ggplot2::theme_minimal(base_size = 13)
 }
 
@@ -156,13 +231,27 @@ replay_load <- function(retype = TRUE) {
   steps <- list("Onglet Données : « Charger l'échantillon BAAC ».")
   if (retype) {
     steps <- c(steps, list(paste(
-      "Onglet Données, tableau Variables : « Variables à retyper » an et vma, « Nouveau type »",
-      "Qualitative (quali), « Changer le type ».")))
+      "Onglet Données, tableau Variables : « Variables à retyper » an (année) et vma (vitesse maximale",
+      "autorisée), « Nouveau type » Qualitative (quali), « Changer le type ». Codées par des nombres, elles",
+      "sont lues comme quantitatives ; en qualitatives, elles donnent un profil par année et par vitesse.")))
   }
   steps
 }
 
 replay_pair <- function(x, y = CASE_STUDY_TARGET) {
-  sprintf(paste("Onglet Exploration, Bivariée, « Couple de variables » : Variable X %s,",
-                "Variable Y %s, « Profils des lignes (X) » Proportions."), x, y)
+  sprintf(paste("Onglet Exploration, Bivariée, « Couple de variables » : Variable X %s (%s),",
+                "Variable Y %s (%s), « Profils des lignes (X) » Proportions."),
+          x, VARIABLE_LABELS[[x]], y, VARIABLE_LABELS[[y]])
+}
+
+# Term of the logistic regression for display: "label (code) : level", or
+# "label (code)" for a quantitative variable.
+pretty_term <- function(term, vars) {
+  vars <- vars[order(-nchar(vars))]
+  vapply(term, function(t) {
+    v <- vars[startsWith(t, vars)][1]
+    if (is.na(v)) return(t)
+    level <- substring(t, nchar(v) + 1)
+    if (nzchar(level)) sprintf("%s : %s", variable_label(v), level) else variable_label(v)
+  }, character(1), USE.NAMES = FALSE)
 }
