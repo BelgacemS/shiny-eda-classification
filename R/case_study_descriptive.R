@@ -21,6 +21,14 @@ Q3_VARS <- c(
   "Âge" = "age"
 )
 
+# Share of the accidents of each year drawn into the app sample
+# (data-raw/02_prepare_baac.R, sample_fraction).
+SAMPLE_FRACTION <- 0.07
+
+# Share of missing vma by year (%) in the full table, 2019 to 2023, the shift
+# described in data-raw/model_vars.R.
+VMA_NA_PCT <- c(`2019` = 1.50, `2020` = 1.52, `2021` = 1.50, `2022` = 1.53, `2023` = 3.50)
+
 # Users and share of grave by year in the full table (692 784 users), printed by
 # data-raw/02_prepare_baac.R ("Share of grave by year"). The sample holds 7 % of
 # the accidents of each year.

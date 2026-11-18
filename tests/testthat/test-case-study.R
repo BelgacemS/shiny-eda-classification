@@ -1,30 +1,39 @@
 # Tab 5 (E13). Synthetic sample and results for CI, where data/ is absent;
 # the claims written in the tab are checked on the real files when present.
 
-fake_sample <- function() {
+# Random but fixed sample: the shares differ between levels, so that a swapped
+# level or argument changes the text.
+fake_sample <- function(n = 3000) {
+  set.seed(20261118)
   levels_catv <- c("VL", "VU", "Vélo", "EDP", "2RM/3RM <= 50 cm3", "2RM/3RM 50 à 125 cm3",
                    "2RM/3RM > 125 cm3", "PL, tracteur routier")
-  n <- 480
-  i <- seq_len(n)
-  grave <- ifelse(i %% 5 == 0 | (i %% 7 == 0 & i %% 2 == 0), "oui", "non")
-  grav <- ifelse(grave == "oui", ifelse(i %% 35 == 0, "Tué", "Blessé hospitalisé"),
-                 ifelse(i %% 2 == 0, "Indemne", "Blessé léger"))
+  pick <- function(levels, prob = NULL) factor(sample(levels, n, TRUE, prob), levels = levels)
+  catv <- pick(levels_catv)
+  catu <- pick(c("Conducteur", "Passager", "Piéton"), c(0.7, 0.2, 0.1))
+  agg <- pick(c("Hors agglomération", "En agglomération"))
+  lum <- pick(c("Plein jour", "Crépuscule ou aube", "Nuit sans éclairage public",
+                "Nuit avec éclairage public allumé"), c(0.6, 0.1, 0.15, 0.15))
+  atm <- pick(c("Normale", "Pluie légère", "Brouillard, fumée", "Vent fort, tempête"), c(0.7, 0.2, 0.05, 0.05))
+  catr <- pick(c("Autoroute", "Route départementale", "Voie communale"))
+  belt <- ifelse(catu == "Piéton", "non", sample(c("oui", "non"), n, TRUE, c(0.7, 0.3)))
+  unknown <- ifelse(belt == "non" & stats::runif(n) < 0.3, "oui", "non")
+  vma <- sample(c(30, 50, 80, 90, 110, 130), n, TRUE)
+  age <- sample(18:90, n, TRUE)
+  an <- sample(2019:2024, n, TRUE)
+  lin <- -2 + 0.8 * (catu == "Piéton") + 0.3 * (catu == "Passager") + 0.5 * (agg == "Hors agglomération") +
+    0.6 * (belt == "non") + 0.05 * as.integer(catv) + 0.2 * (lum == "Nuit sans éclairage public") +
+    0.01 * (age - 50) + 0.002 * vma + 0.05 * (an - 2019)
+  grave <- ifelse(stats::runif(n) < stats::plogis(lin), "oui", "non")
+  grav <- ifelse(grave == "oui", ifelse(stats::runif(n) < 0.15, "Tué", "Blessé hospitalisé"),
+                 ifelse(stats::runif(n) < 0.5, "Indemne", "Blessé léger"))
   data.frame(
-    Num_Acc = sprintf("A%03d", (i + 1) %/% 2),
-    an = rep(2019:2024, length.out = n),
+    Num_Acc = sprintf("A%04d", ceiling(seq_len(n) / 2)), an = an,
     grave = factor(grave, levels = c("non", "oui")),
     grav = factor(grav, levels = c("Indemne", "Tué", "Blessé hospitalisé", "Blessé léger")),
-    catu = factor(rep(c("Conducteur", "Conducteur", "Passager", "Piéton"), length.out = n)),
-    catv_groupe = factor(rep(levels_catv, length.out = n), levels = levels_catv),
-    agg = factor(rep(c("Hors agglomération", "En agglomération", "En agglomération"), length.out = n)),
-    vma = rep(c(30, 50, 80, 90, 110, 130, 50), length.out = n),
-    lum = factor(rep(c("Plein jour", "Plein jour", "Nuit sans éclairage public",
-                       "Nuit avec éclairage public allumé", "Crépuscule ou aube"), length.out = n)),
-    atm = factor(rep(c("Normale", "Normale", "Pluie légère"), length.out = n)),
-    catr = factor(rep(c("Route départementale", "Voie communale", "Autoroute", "Voie communale"), length.out = n)),
-    secu_ceinture = factor(rep(c("oui", "non", "oui"), length.out = n)),
-    secu_indetermine = factor(rep(c("non", "non", "non", "oui"), length.out = n)),
-    age = 18 + (i * 7) %% 60,
+    catu = catu, catv_groupe = catv, agg = agg, vma = vma, lum = lum, atm = atm, catr = catr,
+    secu_ceinture = factor(belt), secu_indetermine = factor(unknown), age = age,
+    col = pick(c("Frontale", "Par le côté")), choc = pick(c("Avant", "Arrière")),
+    obs = pick(c("Aucun", "Arbre")), obsm = pick(c("Aucun", "Piéton")),
     stringsAsFactors = FALSE
   )
 }
@@ -45,8 +54,10 @@ fake_final <- function() {
          weights = data.frame(fpr = c(0, 0.25, 1), tpr = c(0, 0.72, 1)))
   })
   vars <- c("secu_ceinture", "manv", "situ", "agg", "catv_groupe", "age", "vma", "catr", "atm")
+  # A different order for the logistic regression than for the forest and the tree.
+  orders <- list(glm = c(1, 5, 7, 2, 3, 4, 6, 8, 9), ranger = seq_along(vars), rpart = seq_along(vars))
   importance <- lapply(stats::setNames(models, models), function(m) {
-    data.frame(variable = vars, importance = seq(0.09, 0.01, length.out = length(vars)), sd = 0.001)
+    data.frame(variable = vars[orders[[m]]], importance = seq(0.09, 0.01, length.out = length(vars)), sd = 0.001)
   })
   logistic <- data.frame(
     term = c("secu_ceinturenon", "catuPiéton", "aggHors agglomération", "catrAutoroute"),
@@ -55,13 +66,17 @@ fake_final <- function() {
     se = 0.02, separation = FALSE
   )
   grid <- data.frame(model = test$model, balance = test$balance, setting = test$setting, auc = test$auc)
+  crash <- c("col", "choc", "obs", "obsm")
   spec <- function(name) {
     t <- test
-    if (name == "ablation") t$auc <- t$auc + 0.02
-    list(vars = c(vars, "catu"), grid = grid, test = t, roc = roc, logistic = logistic,
-         importance = importance, recipe = list(rare_threshold = 0.005))
+    if (name == "ablation") t$auc <- t$auc + rep(c(0.01, 0.02, 0.03), each = 2)
+    list(vars = c(vars, "catu", if (name == "ablation") crash), grid = grid, test = t, roc = roc,
+         logistic = logistic, importance = importance, recipe = list(rare_threshold = 0.005))
   }
   specs <- list(main = spec("main"), ablation = spec("ablation"))
+  # In the ablation, the logistic regression without rebalancing is chosen, so
+  # that each specification has its own chosen variants.
+  specs$ablation$test$chosen <- c(TRUE, FALSE, FALSE, TRUE, FALSE, TRUE)
   q <- character(0)
   est <- numeric(0)
   for (s in names(specs)) for (k in seq_len(nrow(test))) {
@@ -79,7 +94,8 @@ fake_final <- function() {
     add(paste(s, "glm weights"), paste(s, "rpart weights"))
   }
   for (s in names(specs)) for (m in models) add(paste(s, m, "weights"), paste(s, m, "none"))
-  for (m in models) add(paste("ablation", m, "weights"), paste("main", m, "weights"))
+  add("ablation glm none", "main glm weights")
+  for (m in c("ranger", "rpart")) add(paste("ablation", m, "weights"), paste("main", m, "weights"))
   list(
     meta = list(train_years = 2019:2022, valid_year = 2023, test_year = 2024, n_train = 1000L, n_valid = 300L,
                 n_test = 500L, n_test_accidents = 250L, boot_draws = 1000,
@@ -135,6 +151,8 @@ test_that("grave_profile computes the share of grave by level", {
   expect_equal(share_of(pr, "b"), 200 / 3)
   expect_error(share_of(pr, "c"))
   expect_equal(profile_table(pr)$`Part de graves`, c("50,0 %", "66,7 %"))
+  expect_equal(profile_table(pr)$Graves, c("1", "2"))
+  expect_equal(profile_table(pr)$Usagers, c("2", "3"))
 })
 
 test_that("the models are read from the results without being recomputed", {
@@ -164,7 +182,20 @@ test_that("the models are read from the results without being recomputed", {
   bt <- balance_table(final, "main")
   expect_equal(bt$`Écart [IC 95 %]`[bt$Modèle == MODEL_LABELS[["rpart"]]], "0,0300 [0,0270 ; 0,0330]")
   at <- ablation_table(final)
-  expect_equal(at$`Écart [IC 95 %]`[1], "0,0200 [0,0170 ; 0,0230]")
+  expect_equal(at$`Écart [IC 95 %]`[1], "0,0000 [-0,0030 ; 0,0030]")
+  expect_equal(at$`AUC principale`[1], "0,810 [0,807 ; 0,813]")
+  expect_equal(at$`AUC avec le choc`[1], "0,810 [0,807 ; 0,813]")
+  expect_equal(at$`AUC avec le choc`[2], "0,865 [0,862 ; 0,868]")
+  expect_equal(ev$glm$roc$fpr, spec$roc$glm$weights$fpr)
+  expect_equal(tt$Precision[nrow(tt)], "0,200")
+  expect_equal(tt$Recall[nrow(tt)], "1,000")
+  expect_equal(model_difference_table(final, "main")$Écart[1], "Forêt aléatoire moins régression logistique")
+  glm_row <- bt[bt$Modèle == MODEL_LABELS[["glm"]], ]
+  expect_equal(unlist(glm_row[c("AUC sans", "AUC pondérée", "Seuil sans", "Seuil pondéré", "F1 sans", "F1 pondéré")],
+                      use.names = FALSE), c("0,800", "0,810", "0,200", "0,600", "0,480", "0,490"))
+  expect_equal(crash_vars(final), c("col", "choc", "obs", "obsm"))
+  expect_equal(enumerate_fr(c("a", "b", "c")), "a, b et c")
+  expect_equal(enumerate_fr("a"), "a")
   dt <- model_difference_table(final, "main")
   expect_equal(dt$`Écart d'AUC [IC 95 %]`[1], "0,0350 [0,0320 ; 0,0380]")
   expect_equal(odds_ratio_of(spec, "catuPiéton"), c(estimate = 2.3, lower = 2.2, upper = 2.4))
@@ -189,7 +220,7 @@ test_that("the tab renders with the sample and the results", {
                 "full_years", "catu_plot", "catu_text", "catv_plot", "catv_text", "q3_table", "q3_text",
                 "test_table", "test_text", "roc_plot", "difference_table", "confusions", "balance_table",
                 "balance_text", "ablation_table", "ablation_text", "importance_text", "importance_plot",
-                "logistic_table", "logistic_text", "coherence_text", "model_replay", "limits")) {
+                "logistic_table", "logistic_text", "coherence_text", "model_replay", "limits", "conclusions")) {
       expect_no_error(output[[o]])
     }
     expect_match(output$test_text$html, "La forêt aléatoire a la meilleure AUC")
@@ -207,6 +238,176 @@ test_that("each part says which file is missing", {
     expect_match(output$status$html, "final_models.rds")
     expect_no_error(output$year_table)
     expect_error(output$test_table, "final_models.rds")
+    expect_match(output$limits$html, "Hooker et al., 2021")
+    expect_error(output$conclusions, "final_models.rds")
+  })
+})
+
+# --- The sentences of the tab, against values computed here without the tab's functions ---
+
+plain <- function(x) {
+  html <- if (is.list(x)) x$html else x
+  gsub("\\s+", " ", gsub("<[^>]+>", " ", html))
+}
+expect_has <- function(text, fragment) {
+  expect(grepl(fragment, text, fixed = TRUE), sprintf("missing: %s\nin: %s", fragment, substr(text, 1, 600)))
+}
+num <- function(x, d = 1) formatC(x, format = "f", digits = d, big.mark = " ", decimal.mark = ",")
+share_by <- function(x, sample) 100 * tapply(sample$grave == "oui", x, mean)
+
+test_that("the descriptive sentences give the right figures", {
+  s <- fake_sample()
+  shiny::testServer(mod_case_study_server, args = list(baac_sample = s, final_results = fake_final()), {
+    f <- 100 * table(s$grav) / nrow(s)
+    t1 <- plain(output$severity_text)
+    expect_has(t1, sprintf("%s %% des usagers sont indemnes, %s %% blessés légers, %s %% blessés hospitalisés et %s %% tués : %s %% sont graves",
+                           num(f[["Indemne"]]), num(f[["Blessé léger"]]), num(f[["Blessé hospitalisé"]]),
+                           num(f[["Tué"]]), num(f[["Blessé hospitalisé"]] + f[["Tué"]])))
+
+    by_year <- share_by(s$an, s)
+    t2 <- plain(output$year_text)
+    expect_has(t2, sprintf("va de %s %% (%s) à %s %% (%s)", num(min(by_year)), names(by_year)[which.min(by_year)],
+                           num(max(by_year)), names(by_year)[which.max(by_year)]))
+    expect_has(t2, sprintf("baisse de %s %%", num(100 * (1 - 99169 / 126352))))
+    expect_has(t2, "(18,29 % contre 18,09 %)")
+
+    u <- share_by(s$catu, s)
+    expect_has(plain(output$catu_text), sprintf("Un piéton est grave dans %s %% des cas, contre %s %% pour un conducteur et %s %% pour un passager",
+                                                num(u[["Piéton"]]), num(u[["Conducteur"]]), num(u[["Passager"]])))
+
+    v <- share_by(s$catv_groupe, s)
+    t3 <- plain(output$catv_text)
+    expect_has(t3, sprintf("plus souvent graves (%s %%), devant ceux de 50 cm³ ou moins (%s %%), de 50 à 125 cm³ (%s %%) et les cyclistes (%s %%)",
+                           num(v[["2RM/3RM > 125 cm3"]]), num(v[["2RM/3RM <= 50 cm3"]]),
+                           num(v[["2RM/3RM 50 à 125 cm3"]]), num(v[["Vélo"]])))
+    expect_has(t3, sprintf("(EDP) : %s %%", num(v[["EDP"]])))
+    expect_has(t3, sprintf("graves dans %s %% des cas, ceux d'un poids lourd dans %s %%", num(v[["VL"]]),
+                           num(v[["PL, tracteur routier"]])))
+    expect_has(t3, sprintf("et %s piétons heurtés par une voiture, sur %s usagers",
+                           num(sum(s$catv_groupe == "VL" & s$catu == "Piéton"), 0), num(sum(s$catv_groupe == "VL"), 0)))
+
+    t4 <- plain(output$q3_text)
+    b <- share_by(s$secu_ceinture, s)
+    no_belt <- s$secu_ceinture == "non"
+    expect_has(t4, sprintf("Sans ceinture, %s %% de graves, contre %s %% avec", num(b[["non"]]), num(b[["oui"]])))
+    expect_has(t4, sprintf("piétons (%s des %s usagers à « non »)", num(sum(no_belt & s$catu == "Piéton"), 0),
+                           num(sum(no_belt), 0)))
+    expect_has(t4, sprintf("équipements indéterminés (%s)", num(sum(no_belt & s$secu_indetermine == "oui"), 0)))
+    expect_has(t4, "odds ratio de 4,7")
+    a <- share_by(s$agg, s)
+    r <- share_by(s$catr, s)
+    expect_has(t4, sprintf("Hors agglomération, %s %% de graves, contre %s %% en agglomération", num(a[["Hors agglomération"]]),
+                           num(a[["En agglomération"]])))
+    expect_has(t4, sprintf("départementales sont les plus touchées (%s %%), les autoroutes parmi les moins (%s %%)",
+                           num(r[["Route départementale"]]), num(r[["Autoroute"]])))
+    expect_has(t4, sprintf("voies communales : %s %%", num(r[["Voie communale"]])))
+    m <- share_by(s$vma, s)
+    expect_has(t4, sprintf("%s %% à 30 km/h, %s %% à 50, %s %% à 80, %s %% à 90, %s %% à 110 et %s %% à 130",
+                           num(m[["30"]]), num(m[["50"]]), num(m[["80"]]), num(m[["90"]]), num(m[["110"]]), num(m[["130"]])))
+    l <- share_by(s$lum, s)
+    night <- s$lum == "Nuit sans éclairage public"
+    expect_has(t4, sprintf("De nuit sans éclairage public, %s %% de graves, contre %s %% en plein jour et %s %% de nuit avec",
+                           num(l[["Nuit sans éclairage public"]]), num(l[["Plein jour"]]),
+                           num(l[["Nuit avec éclairage public allumé"]])))
+    expect_has(t4, sprintf("hors agglomération (%s %% des cas)", num(100 * mean(s$agg[night] == "Hors agglomération"))))
+    w <- share_by(s$atm, s)
+    expect_has(t4, sprintf("%s %% de graves par temps normal, %s %% sous pluie légère. Brouillard (%s %%) et vent fort (%s %%)",
+                           num(w[["Normale"]]), num(w[["Pluie légère"]]), num(w[["Brouillard, fumée"]]),
+                           num(w[["Vent fort, tempête"]])))
+    expect_has(t4, sprintf("mais sur %s usagers", num(sum(s$atm %in% c("Brouillard, fumée", "Vent fort, tempête")), 0)))
+    ages <- tapply(s$age, s$grave, mean)
+    expect_has(t4, sprintf("(%s ans contre %s)", num(ages[["oui"]]), num(ages[["non"]])))
+
+    session$setInputs(q3_var = "age")
+    x <- s$age[s$grave == "oui"]
+    expect_has(plain(output$q3_detail), num(sqrt(mean((x - mean(x))^2))))
+    expect_has(plain(output$q3_replay), "Variable X age, Variable Y grave")
+    session$setInputs(q3_var = "vma")
+    expect_has(plain(output$q3_replay), "« Variables à retyper » an et vma, « Nouveau type » Qualitative (quali)")
+    expect_has(plain(output$q3_replay), "Variable X vma, Variable Y grave")
+    session$setInputs(q3_var = "catr")
+    expect_false(grepl("retyper", plain(output$q3_replay)))
+    detail <- plain(output$q3_detail)
+    expect_has(detail, sprintf("Route départementale %s %s", num(sum(s$catr == "Route départementale"), 0),
+                               num(sum(s$catr == "Route départementale" & s$grave == "oui"), 0)))
+  })
+})
+
+test_that("the vma sentence names the cells with a small expected count only when there are some", {
+  s <- fake_sample()
+  s$vma[1:3] <- 15  # a rare speed limit
+  tab <- table(s$vma, s$grave)
+  expected <- outer(rowSums(tab), colSums(tab)) / sum(tab)
+  shiny::testServer(mod_case_study_server, args = list(baac_sample = s, final_results = NULL), {
+    expect_has(plain(output$q3_text), sprintf("en partie gonflé par des valeurs rares (%d cellules sur %d ont",
+                                              sum(expected < 5), length(expected)))
+  })
+  shiny::testServer(mod_case_study_server, args = list(baac_sample = fake_sample(), final_results = NULL), {
+    expect_false(grepl("gonflé", plain(output$q3_text), fixed = TRUE))
+  })
+})
+
+test_that("the static replay steps retype an and vma where the figure needs it", {
+  html <- plain(htmltools::renderTags(mod_case_study_ui("cs"))$html)
+  # Q1 by year and the Q3 table need the retype; the other static boxes do not.
+  expect_equal(lengths(regmatches(html, gregexpr("Variables à retyper", html, fixed = TRUE))), 2)
+  expect_has(html, "Variable X an, Variable Y grave")
+  expect_has(html, "Variable X catu, Variable Y grave")
+})
+
+test_that("the model sentences read the right variants and intervals", {
+  final <- fake_final()
+  shiny::testServer(mod_case_study_server, args = list(baac_sample = fake_sample(), final_results = final), {
+    t1 <- plain(output$test_text)
+    expect_has(t1, "La forêt aléatoire a la meilleure AUC sur 2024 (0,845), devant la régression logistique (0,810) et l'arbre de décision (0,780)")
+    expect_has(t1, "la forêt aléatoire retrouve 66,0 % des usagers graves (Recall), et 46,0 % des usagers signalés")
+    expect_has(t1, "(F1 = 0,333)")
+    t2 <- plain(output$balance_text)
+    expect_has(t2, "écarts de 0,0100 [0,0070 ; 0,0130] et 0,0050 [0,0020 ; 0,0080]")
+    expect_has(t2, "(0,600 contre 0,200 pour la logistique)")
+    expect_has(t2, "L'arbre gagne davantage (0,0300 [0,0270 ; 0,0330])")
+    expect_has(plain(output$ablation_text), "Ajouter col, choc, obs et obsm augmente l'AUC de 0,000 à 0,030")
+    expect_has(plain(output$test_table), "0,845 [0,842 ; 0,848]")
+    expect_false(grepl("0,865", plain(output$test_table), fixed = TRUE))
+    t3 <- plain(output$importance_text)
+    expect_has(t3, "calculée sur 200 usagers")
+    expect_has(t3, "Suivent, pour la forêt : manv, situ, agg, catv_groupe, age.")
+    t4 <- plain(output$logistic_text)
+    expect_has(t4, "coefficient de la logistique pondérée")
+    expect_has(t4, "ceinture non (contre oui) 4,70 [4,50 ; 4,90], piéton (contre conducteur) 2,30 [2,20 ; 2,40], hors agglomération 1,90 [1,80 ; 2,00], autoroute (contre route départementale) 0,32 [0,31 ; 0,34]")
+    t5 <- plain(output$coherence_text)
+    expect_has(t5, "(rangs 1, 5, 4, 7 et 8 sur 9)")
+    expect_has(t5, "qu'au rang 9")
+    expect_has(t5, "multipliées par 4,7")
+    t6 <- plain(output$model_replay)
+    removed <- strsplit(regmatches(output$model_replay$html, regexpr("(?<=<code>)[^<]*", output$model_replay$html, perl = TRUE)), ", ")[[1]]
+    expect_true(all(c("an", "grav", "col", "choc", "obs", "obsm", "lum") %in% removed))
+    expect_false(any(c("catu", "grave", "Num_Acc", "agg", "age") %in% removed))
+    expect_has(t6, "« Modalités rares : seuil » 0.5 (avec un point)")
+    expect_has(t6, "« Rééquilibrage de l'entraînement » Pondération des classes")
+    expect_has(t6, "l'ordre des modèles peut changer")
+    expect_has(t6, "grav en particulier : c'est la variable dont la cible est tirée")
+    expect_has(t6, "que l'alerte de fuite de l'onglet Modélisation signale")
+    t7 <- plain(output$conclusions)
+    expect_has(t7, "la forêt aléatoire (AUC 0,845) fait un peu mieux que la régression logistique (0,810), elle-même devant l'arbre (0,780) ; F1 de 0,480 à 0,540, contre 0,333")
+    t8 <- plain(output$limits)
+    expect_has(t8, "le meilleur cp de l'arbre (0.001) est à l'intérieur de la grille")
+    expect_has(t8, "(AUC de la grille entre 0,840 et 0,845 sur 2023)")
+    expect_has(t8, "d'au plus 1,5 % de 2019 à 2022 à 3,5 % en 2023")
+    t9 <- plain(output$approach)
+    expect_has(t9, "choix des réglages et du seuil sur 2023 (300 usagers), une seule évaluation sur 2024 (500 usagers, 250 accidents)")
+    expect_has(t9, "Ablation : col, choc, obs et obsm")
+    expect_has(t9, "mtry dans {3, 5}, taille minimale des nœuds dans {50}) et arbre de décision (cp dans {3e-04, 0.001})")
+    expect_has(t9, "modalités de moins de 0,5 % regroupées")
+    expect_has(t9, "Échantillon de l'app : 7 % des accidents")
+  })
+  # A logistic regression chosen without rebalancing is named so, and two
+  # different rebalancings give a replay step per variant.
+  final$specs$main$test$chosen <- c(TRUE, FALSE, FALSE, TRUE, FALSE, TRUE)
+  shiny::testServer(mod_case_study_server, args = list(baac_sample = NULL, final_results = final), {
+    expect_has(plain(output$logistic_text), "coefficient de la logistique sans rééquilibrage")
+    expect_has(plain(output$model_replay), "celui de la variante choisie")
+    expect_has(plain(output$limits), "le meilleur cp de l'arbre (0.001)")
   })
 })
 
@@ -247,6 +448,20 @@ test_that("the descriptive claims hold on the deployed sample", {
   expect_gt(age$groups$mean[age$groups$level == "oui"], age$groups$mean[age$groups$level == "non"])
   sev <- severity_table(ds)
   expect_equal(sev$level, c("Indemne", "Tué", "Blessé hospitalisé", "Blessé léger"))
+  # "Brouillard et vent fort donnent des parts plus hautes".
+  atm <- pr("atm")
+  expect_gt(min(share_of(atm, "Brouillard, fumée"), share_of(atm, "Vent fort, tempête")), share_of(atm, "Normale"))
+  # "Le véhicule est l'une des conditions les plus liées": third Cramér of Q2 and Q3.
+  cramer <- vapply(c("catu", "catv_groupe", setdiff(Q3_VARS, "age")), function(v) pr(v)$stats$cramer, numeric(1))
+  expect_lte(match("catv_groupe", names(sort(cramer, decreasing = TRUE))), 3)
+  # Conclusion: users without a body shell against the occupants of light vehicles.
+  occupants <- ds$data$catv_groupe == "VL" & ds$data$catu != "Piéton"
+  base <- 100 * mean(ds$data$grave[occupants] == "oui")
+  expect_gt(min(share_of(catu, "Piéton"), share_of(catv, "Vélo"), share_of(catv, "2RM/3RM <= 50 cm3")), 1.5 * base)
+  # "La part de graves d'une année varie d'environ un point par le seul tirage".
+  sample_range <- diff(range(pr("an")$share))
+  expect_gt(sample_range, diff(range(FULL_TABLE_YEARS$grave_pct)))
+  expect_lt(max(abs(pr("an")$share - FULL_TABLE_YEARS$grave_pct)), 1.5)
 })
 
 test_that("the yearly figures of the full table are those of the prepared table", {
@@ -258,6 +473,14 @@ test_that("the yearly figures of the full table are those of the prepared table"
   expect_equal(as.vector(share), FULL_TABLE_YEARS$grave_pct)
   y <- FULL_TABLE_YEARS
   expect_gte(y$grave_pct[y$an == 2020], y$grave_pct[y$an == 2019])
+  years <- full[full$an <= 2023, ]
+  vma_na <- round(100 * tapply(is.na(years$vma), years$an, mean), 2)
+  expect_equal(as.vector(vma_na), unname(VMA_NA_PCT))
+  skip_if_not(file.exists(sample_path))
+  sample <- readRDS(sample_path)
+  ratio <- tapply(sample$Num_Acc, sample$an, function(x) length(unique(x))) /
+    tapply(full$Num_Acc, full$an, function(x) length(unique(x)))
+  expect_true(all(abs(ratio - SAMPLE_FRACTION) < 0.001))
 })
 
 test_that("the model claims hold on the final results", {
@@ -283,4 +506,14 @@ test_that("the model claims hold on the final results", {
   expect_true(all(vapply(spec$importance, function(d) d$variable[1], character(1)) == "secu_ceinture"))
   gains <- final$intervals$estimate[grepl("^ablation .* - main ", final$intervals$quantity)]
   expect_true(all(gains > 0))
+  # "Tous les modèles dépassent nettement « tout positif »".
+  f1 <- vapply(ev, function(e) e$metrics[["f1"]], numeric(1))
+  expect_gt(min(f1), 1.5 * final$naive_test$all_positive[["f1"]])
+  # Coherence: equipment, vehicle, agglomeration, speed limit and road among the
+  # ten most important variables of the forest.
+  expect_true(all(match(c("secu_ceinture", "catv_groupe", "agg", "vma", "catr"), forest$variable) <= 10))
+  # "Probabilités des modèles pondérés décalées vers le haut".
+  t <- spec$test
+  expect_true(all(t$threshold[t$balance == "weights"] > t$threshold[t$balance == "none"] + 0.2))
+  expect_equal(crash_vars(final), c("col", "choc", "obs", "obsm"))
 })
