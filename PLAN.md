@@ -480,7 +480,7 @@ Couvre : l'étude de cas (A.4).
   - Hors périmètre : refonte visuelle ou thème, nouvelles fonctionnalités.
   - Fait (15 novembre) : sections repliées et imputation par défaut ; le signalement facultatif des variables permutées non estimables n'est pas fait (son seuil se fixe sur l'échantillon BAAC régénéré par E12a, absent du poste qui a fait l'étape), et la vérification navigateur sur BAAC reste à faire sur un poste qui a l'échantillon ; celle sur `students.csv` est faite.
 
-- [ ] **E13. Onglet Étude de cas**
+- [x] **E13. Onglet Étude de cas**
   - Dépend de : E8, E9, E12b, E12c (les réglages à rejouer suivent l'interface finale ; si le signalement facultatif de E12c est coupé, E13 commence dès que le reste de E12c est fusionné).
   - Objectif : l'étude de cas, au plan de l'annexe F.
   - Contenu :
@@ -492,6 +492,7 @@ Couvre : l'étude de cas (A.4).
   - Fichiers : `R/mod_case_study.R` (conteneur), `R/case_study_descriptive.R`, `R/case_study_models.R`, `app.R` si besoin.
   - Vérification : liste des chiffres cités, chacun associé à l'onglet ou au script qui le produit.
   - Hors périmètre : boutons qui reconfigurent les autres onglets (voir les décisions), carte.
+  - Fait (18 novembre) : six sous-onglets (question et démarche, Q1, Q2, Q3, modèles, limites et conclusions). Les chiffres descriptifs sont calculés en direct sur l'échantillon, après les mêmes étapes que dans l'app (chargement, `an` et `vma` retypés en quali), et chaque phrase qui cite un chiffre le lit dans le calcul ; un test vérifie que l'onglet 3 donne les mêmes tables et indices, et le navigateur l'a confirmé sur une figure. Seuls chiffres écrits en dur : effectifs et part de graves par année de la table complète (sortie de `02_prepare_baac.R`, vérifiés par un test quand la table est présente). Les affirmations du texte (piétons plus touchés, météo peu liée, forêt devant la logistique...) sont vérifiées par des tests sur les vrais fichiers, sautés en CI. Rédaction : `catv_groupe` mêle occupants et piétons heurtés (le guide rattache un piéton au véhicule qui l'a heurté) et « ceinture non » couvre piétons, deux-roues et équipements indéterminés, ce que l'onglet dit. Mémoire gardée par une session après affichage de tout l'onglet : environ 13 Mo (différence de `gc(full = TRUE)`, trois mesures).
 
 - [ ] **E14. Relecture croisée et redéploiement complet**
   - Dépend de : E13.
