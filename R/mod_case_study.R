@@ -101,7 +101,7 @@ mod_case_study_ui <- function(id) {
           uiOutput(ns("model_replay"))
         )
       ),
-      tabPanel("Limites et conclusions", prose(uiOutput(ns("limits"))))
+      tabPanel("Limites et conclusions", prose(uiOutput(ns("limits")), uiOutput(ns("conclusions"))))
     )
   )
 }
@@ -134,11 +134,12 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
 
     output$approach <- renderUI({
       sample_line <- if (!is.null(baac_sample)) {
-        sprintf(paste("Échantillon de l'app : 7 %% des accidents de chaque année, tirés entiers avec une",
+        sprintf(paste("Échantillon de l'app : %s %% des accidents de chaque année, tirés entiers avec une",
                       "graine fixe, soit %s usagers et %s accidents. Les chiffres des onglets Q1 à Q3 en",
-                      "sont calculés en direct, par les fonctions des onglets Exploration et Modélisation :",
+                      "sont calculés en direct, par les fonctions de l'onglet Exploration :",
                       "les réglages donnés sous chaque figure les redonnent à l'identique."),
-                format_count(nrow(baac_sample)), format_count(length(unique(baac_sample$Num_Acc))))
+                format_number(100 * SAMPLE_FRACTION, 0), format_count(nrow(baac_sample)),
+                format_count(length(unique(baac_sample$Num_Acc))))
       }
       models <- if (!is.null(final_results)) {
         m <- final_results$meta
@@ -165,7 +166,7 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
                                   "appris sur 2019-2022 serait extrapolé à 2024), ni identifiant, ni coordonnées :"),
                             length(vars)),
                     tags$code(paste(vars, collapse = ", "))),
-            tags$li(paste("Ablation : col, choc, obs et obsm décrivent le choc lui-même (type de collision, point",
+            tags$li(paste("Ablation :", enumerate_fr(crash_vars(final_results)), "décrivent le choc lui-même (type de collision, point",
                           "de choc, obstacle), pas les conditions de l'accident. Ils sont absents du modèle",
                           "principal et ajoutés dans une variante, pour mesurer ce qu'ils apportent.")),
             tags$li(sprintf(paste("Trois modèles : régression logistique, forêt aléatoire (%d arbres, mtry dans {%s},",
@@ -323,11 +324,13 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
           "La part de graves n'augmente pas régulièrement avec la vitesse autorisée : %s %% à 30 km/h, %s %% à 50,",
           "%s %% à 80, %s %% à 90, %s %% à 110 et %s %% à 130. La vitesse autorisée décrit surtout le type de",
           "route : 80 km/h est la limite par défaut des routes hors agglomération à double sens sans séparateur",
-          "central depuis juillet 2018. Son C de Cramér (%s) est en partie gonflé par des valeurs rares : %d cellules sur %d ont un",
-          "effectif théorique inférieur à 5."),
+          "central depuis juillet 2018. C de Cramér : %s%s."),
           pct(share_of(vma, "30")), pct(share_of(vma, "50")), pct(share_of(vma, "80")), pct(share_of(vma, "90")),
           pct(share_of(vma, "110")), pct(share_of(vma, "130")), format_number(vma$stats$cramer, 3),
-          vma$stats$n_expected_below_5, vma$stats$n_cells)),
+          if (vma$stats$n_expected_below_5 > 0) {
+            sprintf(", en partie gonflé par des valeurs rares (%d cellules sur %d ont un effectif théorique inférieur à 5)",
+                    vma$stats$n_expected_below_5, vma$stats$n_cells)
+          } else "")),
         p(tags$strong("Luminosité. "), sprintf(paste(
           "De nuit sans éclairage public, %s %% de graves, contre %s %% en plein jour et %s %% de nuit avec",
           "éclairage allumé. La nuit sans éclairage se trouve surtout hors agglomération (%s %% des cas) :",
@@ -337,9 +340,11 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
           pct(light_area["Nuit sans éclairage public", "Hors agglomération"]))),
         p(tags$strong("Météo. "), sprintf(paste(
           "Elle est peu liée à la gravité (C de Cramér = %s) : %s %% de graves par temps normal, %s %% sous",
-          "pluie légère ; les situations rares (brouillard, vent fort) ont des parts plus hautes mais peu",
-          "d'usagers."),
-          format_number(pr$atm$stats$cramer, 3), pct(share_of(pr$atm, "Normale")), pct(share_of(pr$atm, "Pluie légère")))),
+          "pluie légère. Brouillard (%s %%) et vent fort (%s %%) donnent des parts plus hautes, mais sur %s",
+          "usagers à eux deux."),
+          format_number(pr$atm$stats$cramer, 3), pct(share_of(pr$atm, "Normale")), pct(share_of(pr$atm, "Pluie légère")),
+          pct(share_of(pr$atm, "Brouillard, fumée")), pct(share_of(pr$atm, "Vent fort, tempête")),
+          format_count(sum(pr$atm$tab[c("Brouillard, fumée", "Vent fort, tempête"), ])))),
         p(tags$strong("Âge. "), sprintf(paste(
           "Les usagers graves sont un peu plus âgés en moyenne (%s ans contre %s), mais le lien est faible",
           "(rapport de corrélation c = %s)."),
@@ -395,7 +400,7 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
       best <- names(which.max(auc))
       tagList(
         p(sprintf(paste("%s a la meilleure AUC sur %d (%s), devant %s. Au seuil choisi sur %d, %s retrouve",
-                        "%s %% des usagers graves (Recall) et %s %% des usagers qu'elle signale le sont",
+                        "%s %% des usagers graves (Recall), et %s %% des usagers signalés comme graves le sont",
                         "(Precision). Tous les modèles dépassent nettement la référence « tout positif »",
                         "(F1 = %s) : la prédiction est réelle mais modérée, les conditions de l'accident ne",
                         "suffisent pas à dire qui sera grave."),
@@ -441,11 +446,11 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
         interval_of(f, paste(variant_name("ablation", type, abl[[type]]), "-",
                              variant_name("main", type, main[[type]])))[["estimate"]]
       }, numeric(1))
-      p(sprintf(paste("Ajouter col, choc, obs et obsm augmente l'AUC de %s à %s selon le modèle. Ces variables",
+      p(sprintf(paste("Ajouter %s augmente l'AUC de %s à %s selon le modèle. Ces variables",
                       "décrivent l'accident lui-même : elles améliorent la prédiction, mais ne répondent pas à",
                       "la question, qui porte sur les conditions de l'accident. Le modèle principal reste la",
                       "référence de l'étude."),
-                format_number(min(gains), 3), format_number(max(gains), 3)))
+                enumerate_fr(crash_vars(f)), format_number(min(gains), 3), format_number(max(gains), 3)))
     })
 
     output$importance_text <- renderUI({
@@ -466,14 +471,15 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
     output$logistic_text <- renderUI({
       spec <- final()$specs$main
       or <- function(term) format_interval(odds_ratio_of(spec, term), 2)
-      p(sprintf(paste("|β| × s : coefficient de la logistique pondérée multiplié par l'écart-type (1/n) de sa",
+      fitted <- if (chosen_balance(spec)[["glm"]] == "weights") "pondérée" else "sans rééquilibrage"
+      p(sprintf(paste("|β| × s : coefficient de la logistique %s multiplié par l'écart-type (1/n) de sa",
                       "colonne. Odds ratios et IC à 95 %% (Wald) sur la logistique sans rééquilibrage, à autres",
                       "variables égales et par rapport à la modalité la plus fréquente de l'entraînement : ceinture",
                       "non (contre oui) %s, piéton (contre conducteur) %s, hors agglomération %s, autoroute",
                       "(contre route départementale) %s. Ces",
                       "IC supposent les usagers indépendants, ce qui est faux dans un même accident : ils sont",
                       "trop étroits."),
-                or("secu_ceinturenon"), or("catuPiéton"), or("aggHors agglomération"), or("catrAutoroute")))
+                fitted, or("secu_ceinturenon"), or("catuPiéton"), or("aggHors agglomération"), or("catrAutoroute")))
     })
 
     output$coherence_text <- renderUI({
@@ -492,12 +498,22 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
     })
 
     output$model_replay <- renderUI({
-      vars <- final()$specs$main$vars
+      f <- final()
+      vars <- f$specs$main$vars
       removed <- if (!is.null(baac_sample)) replay_removed(sample_ds(), vars)
+      balance <- unique(chosen_balance(f$specs$main))
+      balance_step <- if (length(balance) == 1) {
+        sprintf("« Rééquilibrage de l'entraînement » %s ; « Entraîner », puis « Évaluer sur le test ».",
+                names(BALANCE_CHOICES)[BALANCE_CHOICES == balance])
+      } else {
+        "« Rééquilibrage de l'entraînement » : celui de la variante choisie, un entraînement par rééquilibrage ; « Entraîner », puis « Évaluer sur le test »."
+      }
       tagList(
         replay_steps(
           "Onglet Données : « Charger l'échantillon BAAC ».",
-          "Onglet Prétraitement : « Modalités rares : seuil » 0,5 ; garder l'imputation par défaut (médiane, modalité la plus fréquente).",
+          sprintf(paste("Onglet Prétraitement : « Modalités rares : seuil » %s (avec un point) ; garder l'imputation",
+                        "par défaut (médiane, modalité la plus fréquente)."),
+                  format(100 * f$specs$main$recipe$rare_threshold)),
           "Onglet Modélisation : « Variable cible » grave, « Modalité positive » oui.",
           tagList("« Variables explicatives » : retirer ",
                   if (!is.null(removed)) tags$code(paste(removed, collapse = ", ")) else "toute variable hors de la liste blanche",
@@ -506,27 +522,38 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
                         "donne une prédiction presque parfaite et trompeuse, que l'alerte de fuite de l'onglet",
                         "Modélisation signale. an sert au découpage et n'est pas une variable de l'étude.")),
           "« Identifiant de groupe » Num_Acc ; « Découpage » Par variable, « Variable du découpage » an, « Valeurs mises en test » 2024.",
-          "« Rééquilibrage de l'entraînement » Pondération des classes ; « Entraîner », puis « Évaluer sur le test »."
+          balance_step
         ),
-        p(paste("Les chiffres seront proches, pas identiques : l'app tire 20 000 lignes de l'échantillon au lieu",
-                "de toute la table, apprend sur 2019-2023 avec une validation interne au lieu de 2019-2022 avec",
-                "2023, garde les réglages par défaut de la forêt et de l'arbre, n'applique pas les recodages de",
-                "data-raw/model_vars.R (vosp, catr, trajet, circ), regroupe les modalités rares de toutes les",
-                "variables quali et calcule les importances sur 1 000 lignes du test par défaut."))
+        p(paste("Les chiffres ne seront pas ceux de l'étude, et l'ordre des modèles peut changer : l'app tire",
+                "20 000 lignes de l'échantillon au lieu de toute la table, apprend sur 2019-2023 avec une validation",
+                "interne au lieu de 2019-2022 avec 2023, garde les réglages par défaut de la forêt et de l'arbre",
+                "(cp = 0,01, un arbre bien plus petit), n'applique pas les recodages de data-raw/model_vars.R",
+                "(vosp, catr, trajet, circ), regroupe les modalités rares de toutes les variables quali et calcule",
+                "les importances sur 1 000 lignes du test par défaut. Son test ne compte que les usagers de 2024",
+                "tirés dans ces 20 000 lignes, quelques milliers : un écart d'AUC de l'ordre de 0,01 n'y est pas",
+                "mesurable, et la forêt, qui gagne le plus à avoir beaucoup de données, peut y passer derrière la",
+                "logistique. C'est la raison du calcul complet hors de l'app."))
       )
     })
 
     # --- Limits and conclusions ---------------------------------------------------
 
     output$limits <- renderUI({
-      f <- final()
-      spec <- f$specs$main
-      grid <- spec$grid
-      chosen <- spec$test[spec$test$chosen, , drop = FALSE]
-      cp_values <- vapply(f$meta$settings_grid$rpart, `[[`, numeric(1), "cp")
-      tree_cp <- as.numeric(sub("cp = ", "", chosen$setting[chosen$model == "rpart"]))
-      forest_auc <- range(grid$auc[grid$model == "ranger"])
-      ev <- main_eval()
+      tuning <- if (!is.null(final_results)) {
+        spec <- final_results$specs$main
+        chosen <- spec$test[spec$test$chosen, , drop = FALSE]
+        cp_values <- vapply(final_results$meta$settings_grid$rpart, `[[`, numeric(1), "cp")
+        tree_cp <- as.numeric(sub("cp = ", "", chosen$setting[chosen$model == "rpart"]))
+        forest_auc <- range(spec$grid$auc[spec$grid$model == "ranger"])
+        tags$li(sprintf(paste("Réglages : le meilleur cp de l'arbre (%s) %s ; la forêt est peu sensible à ses",
+                              "réglages (AUC de la grille entre %s et %s sur %d)."),
+                        format(tree_cp),
+                        if (isTRUE(all.equal(tree_cp, min(cp_values)))) {
+                          "est la plus petite valeur de la grille : un arbre plus profond ferait peut-être mieux"
+                        } else "est à l'intérieur de la grille",
+                        format_number(forest_auc[1], 3), format_number(forest_auc[2], 3),
+                        final_results$meta$valid_year))
+      }
       tagList(
         h3("Limites"),
         tags$ul(
@@ -536,9 +563,9 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
           tags$li(paste("Données administratives : seuls les accidents corporels constatés par les forces de",
                         "l'ordre sont enregistrés. Une partie des accidents n'y figure pas (sous-déclaration), ce",
                         "qui peut déformer les comparaisons entre catégories d'usagers.")),
-          tags$li(paste("Échantillon : la partie descriptive porte sur 7 % des accidents ; une part de graves y",
-                        "varie d'environ un point d'une année à l'autre par le seul tirage. Les modèles, eux, ont",
-                        "utilisé toute la table.")),
+          tags$li(sprintf(paste("Échantillon : la partie descriptive porte sur %s %% des accidents ; la part de graves",
+                                "d'une année y varie d'environ un point par le seul tirage. Les modèles, eux, ont",
+                                "utilisé toute la table."), format_number(100 * SAMPLE_FRACTION, 0))),
           tags$li(paste("Dépendance entre usagers d'un même accident : prise en compte par le bootstrap par",
                         "grappes pour les AUC, pas par les IC de Wald des odds ratios, trop étroits. Les",
                         "intervalles mesurent la variabilité de l'échantillon de 2024 à modèles fixés, pas celle",
@@ -547,21 +574,26 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
                         "d'usager et véhicule), l'importance se partage entre elles, et la permutation crée des",
                         "combinaisons irréalistes, comme un piéton avec ceinture (Hooker et al., 2021).")),
           tags$li("Association n'est pas causalité : les tableaux croisés et les odds ratios décrivent des liens, pas des effets."),
-          tags$li(paste("Codage : le changement de codage de secu3 en 2024 a été vu à la préparation des données,",
-                        "sur les variables explicatives et sans les étiquettes ; les indicateurs d'équipement",
-                        "reposent sur le guide de codification. La part de valeurs manquantes de vma passe de",
-                        "1,5 % à 3,5 % en 2023, imputées par la médiane de l'entraînement.")),
-          tags$li(sprintf(paste("Réglages : le meilleur cp de l'arbre (%s) %s ; la forêt est peu sensible à ses",
-                                "réglages (AUC de la grille entre %s et %s sur %d)."),
-                          format(tree_cp, scientific = TRUE),
-                          if (isTRUE(all.equal(tree_cp, min(cp_values)))) {
-                            "est la plus petite valeur de la grille : un arbre plus profond ferait peut-être mieux"
-                          } else "est à l'intérieur de la grille",
-                          format_number(forest_auc[1], 3), format_number(forest_auc[2], 3), f$meta$valid_year)),
+          tags$li(sprintf(paste("Codage : le changement de codage de secu3 en 2024 a été vu à la préparation des",
+                                "données, sur les variables explicatives et sans regarder la cible ; les indicateurs",
+                                "d'équipement reposent sur le guide de codification. La part de valeurs manquantes",
+                                "de vma passe d'au plus %s %% de 2019 à 2022 à %s %% en 2023, imputées par la médiane",
+                                "de l'entraînement."),
+                          format_number(max(VMA_NA_PCT[as.character(2019:2022)]), 1),
+                          format_number(VMA_NA_PCT[["2023"]], 1))),
+          tuning,
           tags$li("Calibration : les probabilités des modèles pondérés sont décalées ; elles ne se lisent pas comme un risque."),
           tags$li(paste("Les données 2025, publiées par l'ONISR le 30 octobre 2026 après le début de l'étude, ne",
                         "sont pas utilisées : elles permettraient un second test temporel."))
-        ),
+        )
+      )
+    })
+
+    output$conclusions <- renderUI({
+      f <- final()
+      ev <- main_eval()
+      f1 <- vapply(ev, function(e) e$metrics[["f1"]], numeric(1))
+      tagList(
         h3("Conclusions"),
         tags$ul(
           tags$li(paste("Les usagers sans carrosserie (piétons, deux-roues motorisés, cyclistes) sont nettement",
@@ -573,13 +605,11 @@ mod_case_study_server <- function(id, baac_sample, final_results) {
                                 "logistique (%s), elle-même devant l'arbre (%s) ; F1 de %s à %s, contre %s pour",
                                 "« tout positif »."),
                           f$meta$test_year, format_number(ev$ranger$roc$auc, 3), format_number(ev$glm$roc$auc, 3),
-                          format_number(ev$rpart$roc$auc, 3),
-                          format_number(min(vapply(ev, function(e) e$metrics[["f1"]], numeric(1))), 3),
-                          format_number(max(vapply(ev, function(e) e$metrics[["f1"]], numeric(1))), 3),
+                          format_number(ev$rpart$roc$auc, 3), format_number(min(f1), 3), format_number(max(f1), 3),
                           format_metric(f$naive_test$all_positive[["f1"]]))),
-          tags$li(paste("Le rééquilibrage n'améliore pas l'AUC de la logistique ni de la forêt une fois le seuil",
-                        "choisi sur la validation. Les variables du choc améliorent la prédiction, mais décrivent",
-                        "l'accident plutôt que ses conditions."))
+          tags$li(paste("Le rééquilibrage n'améliore pas l'AUC de la logistique ni de la forêt de façon notable",
+                        "une fois le seuil choisi sur la validation. Les variables du choc améliorent la",
+                        "prédiction, mais décrivent l'accident plutôt que ses conditions."))
         )
       )
     })

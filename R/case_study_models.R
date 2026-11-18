@@ -137,6 +137,15 @@ ablation_table <- function(final) {
   do.call(rbind, rows)
 }
 
+# Variables of the ablation that the main specification does not have.
+crash_vars <- function(final) setdiff(final$specs$ablation$vars, final$specs$main$vars)
+
+# "a, b et c".
+enumerate_fr <- function(x) {
+  if (length(x) <= 1) return(paste(x))
+  paste(paste(x[-length(x)], collapse = ", "), "et", x[length(x)])
+}
+
 # Odds ratio of one term of the logistic regression without rebalancing.
 odds_ratio_of <- function(spec, term) {
   row <- spec$logistic[spec$logistic$term == term, , drop = FALSE]
